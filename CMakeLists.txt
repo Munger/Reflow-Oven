@@ -45,11 +45,24 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
+    Middlewares/Third_Party/cJSON/cJSON.c
+    Core/Src/api/api.c
+    Core/Src/api/api_oven.c
+    Core/Src/api/api_sensors.c
+    Core/Src/api/api_profiles.c
+    Core/Src/api/api_config.c
+    Core/Src/api/api_logs.c
+    Core/Src/api/api_storage.c
+    Core/Src/api/api_system.c
+    Core/Src/api/api_power.c
+    Core/Src/api/api_ui.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
+    Middlewares/Third_Party/cJSON
+    Core/Inc/api
 )
 
 # Add project symbols (macros)

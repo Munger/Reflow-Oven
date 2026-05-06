@@ -2,15 +2,16 @@
  * @file    api.h
  * @brief   Reflow Oven Controller — Serial REST API
  *
- * All API operations use a parameter block (api_pb_t) passed by pointer.
- * The union shares memory across all resource types. The common header
- * must be the first member of every resource-specific struct.
+ * All API operations use a parameter block (ApiPB) passed by pointer.
+ * The header fields (status, method, path, segments, body_in, body_out) are
+ * directly accessible. Resource-specific data is overlaid in a union within
+ * the parameter block (pb->resource.oven, pb->resource.sensors, etc.).
  *
  * Request flow:
- *   USB RX → api_receive() → api_parse() → api_route() → handler() → api_respond()
+ *   USB RX → ApiReceive() → ApiParse() → ApiRoute() → handler() → ApiRespond()
  *
  * Push events:
- *   Any context → api_event_push()
+ *   Any context → ApiEventPush()
  */
 
 #ifndef API_H
@@ -24,7 +25,7 @@
  * Constants
  * -------------------------------------------------------------------------- */
 
-#define API_MAX_PATH        128
+#define API_MAX_PATH_LEN    128
 #define API_MAX_SEGMENTS    8
 #define API_MAX_SEG_LEN     64
 #define API_MAX_NAME        64
@@ -32,8 +33,8 @@
 #define API_MAX_FAULTS      8
 #define API_MAX_FAULT_DESC  64
 #define API_MAX_STAGES      16
-#define API_TX_BUFFER       2048
-#define API_RX_BUFFER       2048
+#define API_TX_BUFFER_LEN   APP_TX_DATA_SIZE
+#define API_RX_BUFFER_LEN   APP_RX_DATA_SIZE
 
 /* --------------------------------------------------------------------------
  * Status codes
@@ -47,7 +48,7 @@ typedef enum {
     API_STATUS_NOT_FOUND            = 404,
     API_STATUS_CONFLICT             = 409,
     API_STATUS_INTERNAL_ERROR       = 500,
-} api_status_t;
+} APIStatus;
 
 /* --------------------------------------------------------------------------
  * HTTP methods
@@ -59,7 +60,7 @@ typedef enum {
     API_METHOD_POST,
     API_METHOD_PUT,
     API_METHOD_DELETE,
-} api_method_t;
+} APIMethod;
 
 /* --------------------------------------------------------------------------
  * Oven states
@@ -72,7 +73,7 @@ typedef enum {
     OVEN_STATE_COOLING,
     OVEN_STATE_FAULT,
     OVEN_STATE_ESTOP,
-} oven_state_t;
+} OvenState;
 
 /* --------------------------------------------------------------------------
  * Reflow stages
@@ -84,7 +85,7 @@ typedef enum {
     STAGE_SOAK,
     STAGE_REFLOW,
     STAGE_COOLDOWN,
-} reflow_stage_t;
+} ReflowStage;
 
 /* --------------------------------------------------------------------------
  * Heater identifiers
@@ -94,7 +95,7 @@ typedef enum {
     HEATER_TOP      = 0,
     HEATER_BOTTOM,
     HEATER_REAR,
-} heater_id_t;
+} HeaterID;
 
 /* --------------------------------------------------------------------------
  * USB-PD role
@@ -104,7 +105,7 @@ typedef enum {
     PD_ROLE_SINK    = 0,
     PD_ROLE_SOURCE,
     PD_ROLE_DUAL,
-} pd_role_t;
+} PDRole;
 
 /* --------------------------------------------------------------------------
  * Buzzer patterns
@@ -115,7 +116,7 @@ typedef enum {
     BUZZER_BEEP,
     BUZZER_ALARM,
     BUZZER_SUCCESS,
-} buzzer_pattern_t;
+} BuzzerPattern;
 
 /* --------------------------------------------------------------------------
  * Clock source (for fault reporting)
@@ -125,7 +126,7 @@ typedef enum {
     CLOCK_HSE       = 0,
     CLOCK_LSE,
     CLOCK_HSI,
-} clock_source_t;
+} ClockSource;
 
 /* --------------------------------------------------------------------------
  * ESTOP source
@@ -134,221 +135,201 @@ typedef enum {
 typedef enum {
     ESTOP_HARDWARE  = 0,
     ESTOP_SOFTWARE,
-} estop_source_t;
+} EstopSource;
 
 /* --------------------------------------------------------------------------
- * Common parameter block header — must be first member of every pb struct
+ * /oven — oven control (resource-specific fields)
  * -------------------------------------------------------------------------- */
 
 typedef struct {
-    api_status_t    status;                         /* result, set by handler          */
-    api_method_t    method;                         /* GET / POST / PUT / DELETE       */
-    char            path[API_MAX_PATH];             /* raw path string                 */
-    char           *segments[API_MAX_SEGMENTS];     /* tokenised path segments         */
-    uint8_t         segment_count;                  /* number of valid segments        */
-    cJSON          *body_in;                        /* parsed request body or NULL     */
-    cJSON          *body_out;                       /* response body, set by handler   */
-} api_pb_common_t;
-
-/* --------------------------------------------------------------------------
- * /oven — oven control
- * -------------------------------------------------------------------------- */
-
-typedef struct {
-    api_pb_common_t common;
-
     /* GET /oven/status — response fields */
-    oven_state_t    state;
-    char            profile_name[API_MAX_NAME];
-    reflow_stage_t  stage;
-    uint32_t        elapsed_s;
-    uint32_t        remaining_s;
+    OvenState   state;
+    char        profileName[API_MAX_NAME];
+    ReflowStage stage;
+    uint32_t    elapsed;
+    uint32_t    remaining;
 
     /* PUT /oven/run — request fields */
-    char            run_profile[API_MAX_NAME];
+    char            runProfile[API_MAX_NAME];
 
     /* PUT /oven/manual/heater — request fields */
-    heater_id_t     heater;
-    uint8_t         heater_power_pct;
+    HeaterID     heater;
+    uint8_t         heaterPowerPct;
 
     /* PUT /oven/manual/fan — request fields */
-    uint8_t         fan_speed_pct;
-} api_oven_pb_t;
+    uint8_t         fanSpeedPct;
+} OvenAPIParam, *OvenAPIParamPtr;
 
 /* --------------------------------------------------------------------------
- * /sensors — sensor readings
+ * /sensors — sensor readings (resource-specific fields)
  * -------------------------------------------------------------------------- */
 
 typedef struct {
-    api_pb_common_t common;
-
     /* GET /sensors/temperature — response fields */
-    float           temp_oven;
-    float           temp_cjt1;
-    float           temp_cjt2;
-    char            temp_unit;          /* 'C' or 'F'   */
+    float           tempOven;
+    float           tempCJT1;
+    float           tempCJT2;
+    char            tempUnit;          /* 'C' or 'F'   */
 
     /* GET /sensors/mains — response fields */
-    float           mains_freq_hz;
-    bool            mains_present;
-} api_sensors_pb_t;
+    float           mainsFreqHZ;
+    bool            mainsPresent;
+} SensorsAPIParam, *SensorsAPIParamPtr;
 
 /* --------------------------------------------------------------------------
- * /profiles — profile management
+ * /profiles — profile management (resource-specific fields)
  * -------------------------------------------------------------------------- */
 
 typedef struct {
     char            name[API_MAX_NAME];
-    float           target_c;
-    uint32_t        duration_s;
-    uint8_t         fan_pct;
-} api_profile_stage_t;
+    float           targetC;
+    uint32_t        duration;
+    uint8_t         fanPct;
+} APIProfileStage;
 
 typedef struct {
     char                name[API_MAX_NAME];
-    api_profile_stage_t stages[API_MAX_STAGES];
-    uint8_t             stage_count;
-    uint32_t            size_bytes;
-} api_profile_t;
+    APIProfileStage stages[API_MAX_STAGES];
+    uint8_t             stageCount;
+    uint32_t            sizeBytes;
+} APIProfile;
 
 typedef struct {
-    api_pb_common_t common;
-
     /* GET /profiles — response fields */
-    api_profile_t  *list;               /* caller-allocated array   */
-    uint8_t         list_count;
+    APIProfile  *list;               /* caller-allocated array   */
+    uint8_t         listCount;
 
     /* GET|POST|DELETE /profiles/{name} */
-    api_profile_t   profile;
-} api_profiles_pb_t;
+    APIProfile   profile;
+} ProfilesAPIParam, *ProfilesAPIParamPtr;
 
 /* --------------------------------------------------------------------------
- * /config — system configuration
+ * /config — system configuration (resource-specific fields)
  * -------------------------------------------------------------------------- */
 
 typedef struct {
     float           kp;
     float           ki;
     float           kd;
-} api_pid_config_t;
+} APIPIDConfig;
 
 typedef struct {
-    api_pb_common_t common;
-
-    api_pid_config_t    pid;
-    char                temp_unit;          /* 'C' or 'F'       */
-    uint8_t             log_level;          /* 0=error 3=debug  */
-    bool                buzzer_enabled;
-    bool                light_on_run;
-} api_config_pb_t;
+    APIPIDConfig        pid;
+    char                tempUnit;          /* 'C' or 'F'       */
+    uint8_t             logLevel;          /* 0=error 3=debug  */
+    bool                buzzerEnabled;
+    bool                lightOnRun;
+} ConfigAPIParam, *ConfigAPIParamPtr;
 
 /* --------------------------------------------------------------------------
- * /logs — log file management
+ * /logs — log file management (resource-specific fields)
  * -------------------------------------------------------------------------- */
 
 typedef struct {
     char            name[API_MAX_NAME];
-    uint32_t        size_bytes;
-} api_log_entry_t;
+    uint32_t        sizeBytes;
+} APILogEntry;
 
 typedef struct {
-    api_pb_common_t common;
-
     /* GET /logs — response fields */
-    api_log_entry_t *list;              /* caller-allocated array   */
-    uint8_t          list_count;
+    APILogEntry *list;              /* caller-allocated array   */
+    uint8_t          listCount;
 
     /* GET|DELETE /logs/{name} */
-    char             log_name[API_MAX_NAME];
-    char            *log_content;       /* caller-allocated buffer  */
-    uint32_t         log_content_len;
-} api_logs_pb_t;
+    char             logName[API_MAX_NAME];
+    char            *logContent;       /* caller-allocated buffer  */
+    uint32_t         logContentLen;
+} LogsAPIParam, *LogsAPIParamPtr;
 
 /* --------------------------------------------------------------------------
- * /storage — flash storage management
+ * /storage — flash storage management (resource-specific fields)
  * -------------------------------------------------------------------------- */
 
 typedef struct {
-    api_pb_common_t common;
-
-    uint32_t        total_bytes;
-    uint32_t        used_bytes;
-    uint32_t        free_bytes;
-    bool            confirm_format;     /* must be true for PUT /storage/format */
-} api_storage_pb_t;
+    uint32_t        totalBytes;
+    uint32_t        usedBytes;
+    uint32_t        freeBytes;
+    bool            confirmFormat;     /* must be true for PUT /storage/format */
+} StorageAPIParam, *StorageAPIParamPtr;
 
 /* --------------------------------------------------------------------------
- * /system — system status and control
+ * /system — system status and control (resource-specific fields)
  * -------------------------------------------------------------------------- */
 
 typedef struct {
     char            description[API_MAX_FAULT_DESC];
     uint32_t        code;
-} api_fault_t;
+} APIFault;
 
 typedef struct {
-    api_pb_common_t common;
-
     /* GET /system/status — response fields */
-    char            firmware_version[16];
-    uint32_t        uptime_s;
-    api_fault_t     faults[API_MAX_FAULTS];
-    uint8_t         fault_count;
-    clock_source_t  clock_source;
-    bool            watchdog_active;
+    char            firmwareVersion[16];
+    uint32_t        uptime;
+    APIFault        faults[API_MAX_FAULTS];
+    uint8_t         faultCount;
+    ClockSource     clockSource;
+    bool            watchdogActive;
 
     /* GET|PUT /system/clock */
     char            datetime[32];       /* ISO8601: 2025-01-01T12:00:00 */
-} api_system_pb_t;
+} SystemAPIParam, *SystemAPIParamPtr;
 
 /* --------------------------------------------------------------------------
- * /power — USB-PD and supply status
+ * /power — USB-PD and supply status (resource-specific fields)
  * -------------------------------------------------------------------------- */
 
 typedef struct {
-    api_pb_common_t common;
-
-    bool            usb_pd_connected;
-    float           usb_pd_voltage_v;
-    float           usb_pd_current_a;
-    float           usb_pd_power_w;
-    pd_role_t       usb_pd_role;
-    float           input_voltage_v;
-    bool            battery_present;
-    uint8_t         battery_level_pct;
-} api_power_pb_t;
+    bool            usbPDConnected;
+    float           usbPDVoltage;
+    float           usbPDCurrent;
+    float           usbPDPower;
+    PDRole          usbPDRole;
+    float           inputVoltage;
+    bool            batteryPresent;
+    uint8_t         batteryLevelPct;
+} PowerAPIParam, *PowerAPIParamPtr;
 
 /* --------------------------------------------------------------------------
- * /ui — light and buzzer
+ * /ui — light and buzzer (resource-specific fields)
  * -------------------------------------------------------------------------- */
 
 typedef struct {
-    api_pb_common_t common;
-
     /* PUT /ui/light */
-    bool            light_on;
+    bool            lightOn;
 
     /* PUT /ui/buzzer */
-    buzzer_pattern_t buzzer_pattern;
-    uint32_t         buzzer_duration_ms;
-} api_ui_pb_t;
+    BuzzerPattern   buzzerPattern;
+    uint32_t        buzzerDurationMS;
+} UIAPIParam, *UIAPIParamPtr;
 
 /* --------------------------------------------------------------------------
- * Master parameter block union
+ * Master parameter block — header fields + resource union overlay
  * -------------------------------------------------------------------------- */
 
-typedef union {
-    api_pb_common_t     common;
-    api_oven_pb_t       oven;
-    api_sensors_pb_t    sensors;
-    api_profiles_pb_t   profiles;
-    api_config_pb_t     config;
-    api_logs_pb_t       logs;
-    api_storage_pb_t    storage;
-    api_system_pb_t     system;
-    api_power_pb_t      power;
-    api_ui_pb_t         ui;
-} api_pb_t;
+typedef struct {
+    /* Header — always accessible directly */
+    APIStatus    status;                         /* result, set by handler          */
+    APIMethod    method;                         /* GET / POST / PUT / DELETE       */
+    char            path[API_MAX_PATH_LEN];             /* raw path string                 */
+    char           *segments[API_MAX_SEGMENTS];     /* tokenised path segments         */
+    uint8_t         segmentCount;                  /* number of valid segments        */
+    cJSON          *bodyIn;                        /* parsed request body or NULL     */
+    cJSON          *bodyOut;                       /* response body, set by handler   */
+    bool            isJSON;                        /* true if request was JSON format */
+
+    /* Resource-specific data — union overlay */
+    union {
+        OvenAPIParam        oven;
+        SensorsAPIParam     sensors;
+        ProfilesAPIParam    profiles;
+        ConfigAPIParam      config;
+        LogsAPIParam        logs;
+        StorageAPIParam     storage;
+        SystemAPIParam      system;
+        PowerAPIParam       power;
+        UIAPIParam          ui;
+    } resource;
+} APIPB, *APIPBPtr;
 
 /* --------------------------------------------------------------------------
  * Push event types
@@ -364,12 +345,12 @@ typedef enum {
     API_EVENT_THERMOCOUPLE_FAULT,
     API_EVENT_POWER_CHANGE,
     API_EVENT_STORAGE_LOW,
-} api_event_type_t;
+} APIEventType;
 
 typedef struct {
-    api_event_type_t    type;
-    cJSON              *data;
-} api_event_t;
+    APIEventType    type;
+    cJSON           *data;
+} APIEvent, *APIEventPtr;
 
 /* --------------------------------------------------------------------------
  * Transport layer
@@ -378,26 +359,26 @@ typedef struct {
 /**
  * @brief Initialise the API layer. Call once after USB CDC is ready.
  */
-void api_init(void);
+void ApiInit(void);
 
 /**
  * @brief Process incoming USB data. Call from CDC receive callback.
  * @param buf   Pointer to received data
  * @param len   Length of received data
  */
-void api_receive(const uint8_t *buf, uint32_t len);
+void ApiReceive(const uint8_t *buf, uint32_t len);
 
 /**
  * @brief Serialise and transmit a response. Called internally by handlers.
  * @param pb    Completed parameter block
  */
-void api_respond(const api_pb_t *pb);
+void ApiRespond(APIPBPtr pb);
 
 /**
  * @brief Push an unsolicited event to the host.
  * @param event Pointer to event descriptor
  */
-void api_event_push(const api_event_t *event);
+void ApiEventPush(const APIEventPtr event);
 
 /* --------------------------------------------------------------------------
  * Parser and router
@@ -409,100 +390,100 @@ void api_event_push(const api_event_t *event);
  * @param pb    Output parameter block
  * @return      true if parsing succeeded
  */
-bool api_parse(const char *line, api_pb_t *pb);
+bool ApiParse(const char *line, APIPBPtr pb);
 
 /**
  * @brief Route a parsed parameter block to the correct handler.
  * @param pb    Parsed parameter block
  */
-void api_route(api_pb_t *pb);
+void ApiRoute(APIPBPtr pb);
 
 /* --------------------------------------------------------------------------
  * /oven handlers
  * -------------------------------------------------------------------------- */
 
-void api_oven_get_status       (api_pb_t *pb);
-void api_oven_put_run          (api_pb_t *pb);
-void api_oven_put_stop         (api_pb_t *pb);
-void api_oven_put_estop        (api_pb_t *pb);
-void api_oven_put_manual_enable(api_pb_t *pb);
-void api_oven_put_manual_disable(api_pb_t *pb);
-void api_oven_put_manual_heater(api_pb_t *pb);
-void api_oven_put_manual_fan   (api_pb_t *pb);
+void ApiOvenGetStatus       (APIPBPtr pb);
+void ApiOvenPutRun          (APIPBPtr pb);
+void ApiOvenPutStop         (APIPBPtr pb);
+void ApiOvenPutEstop        (APIPBPtr pb);
+void ApiOvenPutManualEnable (APIPBPtr pb);
+void ApiOvenPutManualDisable(APIPBPtr pb);
+void ApiOvenPutManualHeater (APIPBPtr pb);
+void ApiOvenPutManualFan    (APIPBPtr pb);
 
 /* --------------------------------------------------------------------------
  * /sensors handlers
  * -------------------------------------------------------------------------- */
 
-void api_sensors_get_temperature(api_pb_t *pb);
-void api_sensors_get_mains      (api_pb_t *pb);
+void ApiSensorsGetTemperature(APIPBPtr pb);
+void ApiSensorsGetMains      (APIPBPtr pb);
 
 /* --------------------------------------------------------------------------
  * /profiles handlers
  * -------------------------------------------------------------------------- */
 
-void api_profiles_get_list  (api_pb_t *pb);
-void api_profiles_get       (api_pb_t *pb);
-void api_profiles_post      (api_pb_t *pb);
-void api_profiles_delete    (api_pb_t *pb);
+void ApiProfilesGetList  (APIPBPtr pb);
+void ApiProfilesGet       (APIPBPtr pb);
+void ApiProfilesPost      (APIPBPtr pb);
+void ApiProfilesDelete    (APIPBPtr pb);
 
 /* --------------------------------------------------------------------------
  * /config handlers
  * -------------------------------------------------------------------------- */
 
-void api_config_get (api_pb_t *pb);
-void api_config_put (api_pb_t *pb);
+void ApiConfigGet (APIPBPtr pb);
+void ApiConfigPut (APIPBPtr pb);
 
 /* --------------------------------------------------------------------------
  * /logs handlers
  * -------------------------------------------------------------------------- */
 
-void api_logs_get_list  (api_pb_t *pb);
-void api_logs_get       (api_pb_t *pb);
-void api_logs_delete    (api_pb_t *pb);
-void api_logs_delete_all(api_pb_t *pb);
+void ApiLogsGetList  (APIPBPtr pb);
+void ApiLogsGet       (APIPBPtr pb);
+void ApiLogsDelete    (APIPBPtr pb);
+void ApiLogsDeleteAll(APIPBPtr pb);
 
 /* --------------------------------------------------------------------------
  * /storage handlers
  * -------------------------------------------------------------------------- */
 
-void api_storage_get        (api_pb_t *pb);
-void api_storage_put_format (api_pb_t *pb);
+void ApiStorageGet        (APIPBPtr pb);
+void ApiStoragePutFormat (APIPBPtr pb);
 
 /* --------------------------------------------------------------------------
  * /system handlers
  * -------------------------------------------------------------------------- */
 
-void api_system_get_status  (api_pb_t *pb);
-void api_system_get_clock   (api_pb_t *pb);
-void api_system_put_clock   (api_pb_t *pb);
-void api_system_put_reset   (api_pb_t *pb);
+void ApiSystemGetStatus  (APIPBPtr pb);
+void ApiSystemGetClock   (APIPBPtr pb);
+void ApiSystemPutClock   (APIPBPtr pb);
+void ApiSystemPutReset   (APIPBPtr pb);
 
 /* --------------------------------------------------------------------------
  * /power handlers
  * -------------------------------------------------------------------------- */
 
-void api_power_get(api_pb_t *pb);
+void ApiPowerGet(APIPBPtr pb);
 
 /* --------------------------------------------------------------------------
  * /ui handlers
  * -------------------------------------------------------------------------- */
 
-void api_ui_put_light  (api_pb_t *pb);
-void api_ui_put_buzzer (api_pb_t *pb);
+void ApiUIPutLight  (APIPBPtr pb);
+void ApiUIPutBuzzer (APIPBPtr pb);
 
 /* --------------------------------------------------------------------------
  * Push event helpers — call from anywhere in firmware
  * -------------------------------------------------------------------------- */
 
-void api_event_temperature      (float oven, float cjt1, float cjt2);
-void api_event_profile_stage    (reflow_stage_t stage, float target_c, uint32_t elapsed_s);
-void api_event_profile_complete (const char *name, uint32_t duration_s);
-void api_event_fault            (uint32_t code, const char *description);
-void api_event_estop            (estop_source_t source);
-void api_event_clock_fault      (clock_source_t clock);
-void api_event_thermocouple_fault(uint8_t sensor, const char *fault_type);
-void api_event_power_change     (float voltage_v, float current_a, float power_w);
-void api_event_storage_low      (uint32_t free_bytes);
+void ApiEventTemperature      (float oven, float cjt1, float cjt2);
+void ApiEventProfileStage    (ReflowStage stage, float targetC, uint32_t elapsed);
+void ApiEventProfileComplete (const char *name, uint32_t duration);
+void ApiEventFault            (uint32_t code, const char *description);
+void ApiEventEstop            (EstopSource source);
+void ApiEventClockFault      (ClockSource clock);
+void ApiEventThermocoupleFault(uint8_t sensor, const char *faultType);
+void ApiEventPowerChange     (float voltage, float current, float power);
+void ApiEventStorageLow      (uint32_t freeBytes);
 
 #endif /* API_H */
