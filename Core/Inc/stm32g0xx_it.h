@@ -48,19 +48,17 @@ extern "C" {
 /* Exported functions prototypes ---------------------------------------------*/
 void NMI_Handler(void);
 void HardFault_Handler(void);
-void SVC_Handler(void);
-void PendSV_Handler(void);
-void SysTick_Handler(void);
 void RCC_IRQHandler(void);
 void EXTI0_1_IRQHandler(void);
 void EXTI2_3_IRQHandler(void);
 void EXTI4_15_IRQHandler(void);
 void USB_UCPD1_2_IRQHandler(void);
 void DMA1_Channel1_IRQHandler(void);
+void DMA1_Channel2_3_IRQHandler(void);
 void TIM1_BRK_UP_TRG_COM_IRQHandler(void);
 void TIM1_CC_IRQHandler(void);
+void TIM6_DAC_LPTIM1_IRQHandler(void);
 void TIM7_LPTIM2_IRQHandler(void);
-void TIM14_IRQHandler(void);
 void USART2_LPUART2_IRQHandler(void);
 /* USER CODE BEGIN EFP */
 

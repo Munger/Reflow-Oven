@@ -48,6 +48,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Middlewares/Third_Party/cJSON/cJSON.c
     Core/Src/api/apicore.c
     Core/Src/api/apicodec.c
+    Core/Src/api/apihandlers.c
 )
 
 # Add include paths

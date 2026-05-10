@@ -1,9 +1,9 @@
 /* USER CODE BEGIN Header */
 /**
   ******************************************************************************
-  * @file    usb_drd_fs.h
-  * @brief   This file contains all the function prototypes for
-  *          the usb_drd_fs.c file
+  * @file    app/usbpd.h
+  * @author  MCD Application Team
+  * @brief   This file contains the device define.
   ******************************************************************************
   * @attention
   *
@@ -17,36 +17,44 @@
   ******************************************************************************
   */
 /* USER CODE END Header */
-/* Define to prevent recursive inclusion -------------------------------------*/
-#ifndef __USB_DRD_FS_H__
-#define __USB_DRD_FS_H__
 
+/* Define to prevent recursive inclusion -------------------------------------*/
+#ifndef __usbpd_H
+#define __usbpd_H
 #ifdef __cplusplus
-extern "C" {
+ extern "C" {
 #endif
 
 /* Includes ------------------------------------------------------------------*/
-#include "main.h"
+#include "usbpd_core.h"
+#include "usbpd_dpm_core.h"
+#include "usbpd_dpm_conf.h"
+#include "usbpd_hw_if.h"
 
-/* USER CODE BEGIN Includes */
+/* USER CODE BEGIN 0 */
+/* USER CODE END 0 */
 
-/* USER CODE END Includes */
+/* Global variables ---------------------------------------------------------*/
 
-extern PCD_HandleTypeDef hpcd_USB_DRD_FS;
+/* USER CODE BEGIN 1 */
+/* USER CODE END 1 */
 
-/* USER CODE BEGIN Private defines */
+/* USBPD init function */
+void MX_USBPD_Init(void);
 
-/* USER CODE END Private defines */
-
-void MX_USB_DRD_FS_PCD_Init(void);
-
-/* USER CODE BEGIN Prototypes */
-
-/* USER CODE END Prototypes */
+/* USER CODE BEGIN 2 */
+/* USER CODE END 2 */
 
 #ifdef __cplusplus
 }
 #endif
+#endif /*__usbpd_H */
 
-#endif /* __USB_DRD_FS_H__ */
+/**
+  * @}
+  */
+
+/**
+  * @}
+  */
 

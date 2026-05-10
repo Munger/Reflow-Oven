@@ -87,8 +87,8 @@ void Error_Handler(void);
 #define CJT2_THERM_GPIO_Port GPIOA
 #define FLASH_CS_Pin GPIO_PIN_4
 #define FLASH_CS_GPIO_Port GPIOA
-#define FLASH_CSB0_Pin GPIO_PIN_0
-#define FLASH_CSB0_GPIO_Port GPIOB
+#define OVEN_THERM_Pin GPIO_PIN_0
+#define OVEN_THERM_GPIO_Port GPIOB
 #define HDL_NRST_Pin GPIO_PIN_1
 #define HDL_NRST_GPIO_Port GPIOB
 #define BUZZER_EN_N_Pin GPIO_PIN_2

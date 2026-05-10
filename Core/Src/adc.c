@@ -106,15 +106,22 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
     __HAL_RCC_ADC_CLK_ENABLE();
 
     __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
     /**ADC1 GPIO Configuration
     PA0     ------> ADC1_IN0
     PA2     ------> ADC1_IN2
     PA3     ------> ADC1_IN3
+    PB0     ------> ADC1_IN8
     */
     GPIO_InitStruct.Pin = IANA_Pin|CJT1_THERM_Pin|CJT2_THERM_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = OVEN_THERM_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(OVEN_THERM_GPIO_Port, &GPIO_InitStruct);
 
     /* ADC1 DMA Init */
     /* ADC1 Init */
@@ -155,8 +162,11 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
     PA0     ------> ADC1_IN0
     PA2     ------> ADC1_IN2
     PA3     ------> ADC1_IN3
+    PB0     ------> ADC1_IN8
     */
     HAL_GPIO_DeInit(GPIOA, IANA_Pin|CJT1_THERM_Pin|CJT2_THERM_Pin);
+
+    HAL_GPIO_DeInit(OVEN_THERM_GPIO_Port, OVEN_THERM_Pin);
 
     /* ADC1 DMA DeInit */
     HAL_DMA_DeInit(adcHandle->DMA_Handle);

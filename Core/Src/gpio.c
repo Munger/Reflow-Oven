@@ -58,9 +58,9 @@ void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(FLASH_CS_GPIO_Port, FLASH_CS_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, FLASH_CSB0_Pin|HDL_NRST_Pin|BUZZER_EN_N_Pin|THERM2_CS_Pin
-                          |HOT_SIDE_PWR_EN_N_Pin|OVEN_FAN_EN_N_Pin|HTR_TOP_EN_N_Pin|HTR_REAR_EN_N_Pin
-                          |HTR_BOT_EN_N_Pin|LIGHT_EN_N_Pin|THERM1_CS_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, HDL_NRST_Pin|BUZZER_EN_N_Pin|THERM2_CS_Pin|HOT_SIDE_PWR_EN_N_Pin
+                          |OVEN_FAN_EN_N_Pin|HTR_TOP_EN_N_Pin|HTR_REAR_EN_N_Pin|HTR_BOT_EN_N_Pin
+                          |LIGHT_EN_N_Pin|THERM1_CS_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : HDL_BOOT0_Pin */
   GPIO_InitStruct.Pin = HDL_BOOT0_Pin;
@@ -82,12 +82,12 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(FLASH_CS_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : FLASH_CSB0_Pin HDL_NRST_Pin BUZZER_EN_N_Pin THERM2_CS_Pin
-                           HOT_SIDE_PWR_EN_N_Pin OVEN_FAN_EN_N_Pin HTR_TOP_EN_N_Pin HTR_REAR_EN_N_Pin
-                           HTR_BOT_EN_N_Pin LIGHT_EN_N_Pin THERM1_CS_Pin */
-  GPIO_InitStruct.Pin = FLASH_CSB0_Pin|HDL_NRST_Pin|BUZZER_EN_N_Pin|THERM2_CS_Pin
-                          |HOT_SIDE_PWR_EN_N_Pin|OVEN_FAN_EN_N_Pin|HTR_TOP_EN_N_Pin|HTR_REAR_EN_N_Pin
-                          |HTR_BOT_EN_N_Pin|LIGHT_EN_N_Pin|THERM1_CS_Pin;
+  /*Configure GPIO pins : HDL_NRST_Pin BUZZER_EN_N_Pin THERM2_CS_Pin HOT_SIDE_PWR_EN_N_Pin
+                           OVEN_FAN_EN_N_Pin HTR_TOP_EN_N_Pin HTR_REAR_EN_N_Pin HTR_BOT_EN_N_Pin
+                           LIGHT_EN_N_Pin THERM1_CS_Pin */
+  GPIO_InitStruct.Pin = HDL_NRST_Pin|BUZZER_EN_N_Pin|THERM2_CS_Pin|HOT_SIDE_PWR_EN_N_Pin
+                          |OVEN_FAN_EN_N_Pin|HTR_TOP_EN_N_Pin|HTR_REAR_EN_N_Pin|HTR_BOT_EN_N_Pin
+                          |LIGHT_EN_N_Pin|THERM1_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -112,13 +112,13 @@ void MX_GPIO_Init(void)
   HAL_GPIO_Init(PD_SRC_PON_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI0_1_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(EXTI0_1_IRQn, 3, 0);
   HAL_NVIC_EnableIRQ(EXTI0_1_IRQn);
 
-  HAL_NVIC_SetPriority(EXTI2_3_IRQn, 1, 0);
+  HAL_NVIC_SetPriority(EXTI2_3_IRQn, 3, 0);
   HAL_NVIC_EnableIRQ(EXTI2_3_IRQn);
 
-  HAL_NVIC_SetPriority(EXTI4_15_IRQn, 2, 0);
+  HAL_NVIC_SetPriority(EXTI4_15_IRQn, 3, 0);
   HAL_NVIC_EnableIRQ(EXTI4_15_IRQn);
 
 }
