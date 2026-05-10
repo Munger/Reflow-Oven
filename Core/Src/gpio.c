@@ -58,9 +58,9 @@ void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(FLASH_CS_GPIO_Port, FLASH_CS_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, HDL_NRST_Pin|BUZZER_EN_N_Pin|THERM2_CS_Pin|HOT_SIDE_PWR_EN_N_Pin
-                          |OVEN_FAN_EN_N_Pin|HTR_TOP_EN_N_Pin|HTR_REAR_EN_N_Pin|HTR_BOT_EN_N_Pin
-                          |LIGHT_EN_N_Pin|THERM1_CS_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, FLASH_CSB0_Pin|HDL_NRST_Pin|BUZZER_EN_N_Pin|THERM2_CS_Pin
+                          |HOT_SIDE_PWR_EN_N_Pin|OVEN_FAN_EN_N_Pin|HTR_TOP_EN_N_Pin|HTR_REAR_EN_N_Pin
+                          |HTR_BOT_EN_N_Pin|LIGHT_EN_N_Pin|THERM1_CS_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : HDL_BOOT0_Pin */
   GPIO_InitStruct.Pin = HDL_BOOT0_Pin;
@@ -68,12 +68,6 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(HDL_BOOT0_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : IANA_Pin CJT1_THERM_Pin CJT2_THERM_Pin */
-  GPIO_InitStruct.Pin = IANA_Pin|CJT1_THERM_Pin|CJT2_THERM_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : MAINS_PWR_N_Pin FLGN_Pin */
   GPIO_InitStruct.Pin = MAINS_PWR_N_Pin|FLGN_Pin;
@@ -88,18 +82,12 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(FLASH_CS_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : OVEN_THERM_Pin */
-  GPIO_InitStruct.Pin = OVEN_THERM_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(OVEN_THERM_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : HDL_NRST_Pin BUZZER_EN_N_Pin THERM2_CS_Pin HOT_SIDE_PWR_EN_N_Pin
-                           OVEN_FAN_EN_N_Pin HTR_TOP_EN_N_Pin HTR_REAR_EN_N_Pin HTR_BOT_EN_N_Pin
-                           LIGHT_EN_N_Pin THERM1_CS_Pin */
-  GPIO_InitStruct.Pin = HDL_NRST_Pin|BUZZER_EN_N_Pin|THERM2_CS_Pin|HOT_SIDE_PWR_EN_N_Pin
-                          |OVEN_FAN_EN_N_Pin|HTR_TOP_EN_N_Pin|HTR_REAR_EN_N_Pin|HTR_BOT_EN_N_Pin
-                          |LIGHT_EN_N_Pin|THERM1_CS_Pin;
+  /*Configure GPIO pins : FLASH_CSB0_Pin HDL_NRST_Pin BUZZER_EN_N_Pin THERM2_CS_Pin
+                           HOT_SIDE_PWR_EN_N_Pin OVEN_FAN_EN_N_Pin HTR_TOP_EN_N_Pin HTR_REAR_EN_N_Pin
+                           HTR_BOT_EN_N_Pin LIGHT_EN_N_Pin THERM1_CS_Pin */
+  GPIO_InitStruct.Pin = FLASH_CSB0_Pin|HDL_NRST_Pin|BUZZER_EN_N_Pin|THERM2_CS_Pin
+                          |HOT_SIDE_PWR_EN_N_Pin|OVEN_FAN_EN_N_Pin|HTR_TOP_EN_N_Pin|HTR_REAR_EN_N_Pin
+                          |HTR_BOT_EN_N_Pin|LIGHT_EN_N_Pin|THERM1_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;

@@ -1,0 +1,54 @@
+---
+DisableFormat: true
+---
+Language: Cpp
+
+DisableFormat: false
+
+ColumnLimit: 120
+
+# This puts a space after 'if', 'while', etc., but NOT after function names
+SpaceBeforeParens: ControlStatements
+
+SpacesInParentheses: true
+
+# Braces and Indents
+# if ( xxxx ) {
+BreakBeforeBraces: Attach
+IndentWidth: 4
+IndentCaseLabels: true
+
+# Column Alignment
+# Align variables and members into vertical columns
+AlignConsecutiveDeclarations: AcrossEmptyLinesAndComments
+AlignConsecutiveAssignments: false
+AlignConsecutiveBitFields: AcrossEmptyLines
+AlignConsecutiveMacros: AcrossEmptyLinesAndComments
+
+# Keep the pointer with the type: APIPB* pb
+PointerAlignment: Left
+
+# Spaces inside: [ xxxx ] and { xxxx }
+SpacesInSquareBrackets: true
+Cpp11BracedListStyle: false
+SpacesInContainerLiterals: true
+
+# Don't let the formatter move #includes
+SortIncludes: true
+IncludeBlocks: Regroup
+IncludeIsMainRegex: "$^"
+IncludeCategories:
+  - Regex: "^<.*"
+    Priority: 1
+  - Regex: '^".*'
+    Priority: 2
+
+# Add breathing room around conditional and definition blocks
+SeparateDefinitionBlocks: Always
+# --- Preservation ---
+AllowShortEnumsOnASingleLine: false
+AllowShortBlocksOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: false
+MaxEmptyLinesToKeep: 1
+---
