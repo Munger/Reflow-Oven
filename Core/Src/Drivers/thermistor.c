@@ -44,6 +44,7 @@ typedef struct Thermistor {
 
 static Thermistor instances[ 3 ];
 
+// Called from MX_ADC1_Init() in adc.c to initialize the Thermistor module with the ADC handle and start the DMA sequence.
 void TMInitModule( ADC_HandleTypeDef* hadc ) {
     if ( !hadc ) return;
 

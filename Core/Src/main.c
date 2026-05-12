@@ -36,6 +36,7 @@
 /* USER CODE BEGIN Includes */
 
 #include "cJSON.h"
+#include "buzzer.h"
 
 /* USER CODE END Includes */
 
@@ -116,6 +117,8 @@ int main(void)
   MX_SPI1_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
+
+  BuzzerInitModule();
 
   /* USER CODE END 2 */
 
@@ -244,6 +247,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
+
+  if ( htim->Instance == TIM7 ) {
+      BuzzerProcess();
+  }
 
   /* USER CODE END Callback 1 */
 }

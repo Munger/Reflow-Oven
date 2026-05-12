@@ -23,6 +23,9 @@
 #include "usbpd.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+
+#include "thermocouple.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -156,6 +159,19 @@ void EXTI2_3_IRQHandler(void)
 void EXTI4_15_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI4_15_IRQn 0 */
+
+  // Read the Rising Pending Register for the specific pins on Port B.
+  // This allows us to catch multiple events (e.g. both chips finishing at once).
+  uint32_t pending = EXTI->RPR1 & (THERM1_DRDY_Pin | THERM1_FAULT_Pin | 
+                                    THERM2_DRDY_Pin | THERM2_FAULT_Pin);
+
+  if ( pending != 0 ) {
+      // Clear the pending bits in the hardware immediately to allow new interrupts.
+      EXTI->RPR1 = pending;
+      
+      // Pass the bitmask of triggered pins to the driver dispatcher.
+      TCNotifyInterrupt( (uint16_t)pending );
+  }
 
   /* USER CODE END EXTI4_15_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(THERM1_DRDY_Pin);

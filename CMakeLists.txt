@@ -1,81 +1,79 @@
 cmake_minimum_required(VERSION 3.22)
 
-#
-# This file is generated only once,
-# and is not re-generated if converter is called multiple times.
-#
-# User is free to modify the file as much as necessary
-#
+# Silence the FetchContent_Populate deprecation warning
+cmake_policy(SET CMP0169 OLD)
 
-# Setup compiler settings
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
 
-
-# Define the build type
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "Debug")
-endif()
-
-# Set the project name
 set(CMAKE_PROJECT_NAME ReflowOven)
-
-# Enable compile command to ease indexing with e.g. clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 
-# Core project settings
 project(${CMAKE_PROJECT_NAME})
 message("Build type: " ${CMAKE_BUILD_TYPE})
 
-# Enable CMake support for ASM and C languages
 enable_language(C ASM)
 
-# Create an executable object type
 add_executable(${CMAKE_PROJECT_NAME})
 
-# Add STM32CubeMX generated sources
-add_subdirectory(cmake/stm32cubemx)
+# 1. DOWNLOAD LIBRARIES
+include(FetchContent)
 
-# Link directories setup
-target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined library search paths
+FetchContent_Declare(
+  cjson
+  URL                        https://github.com/DaveGamble/cJSON/archive/refs/tags/v1.7.18.zip
+  SOURCE_DIR                 ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/Third_Party/cJSON
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 
-# Add sources to executable
+FetchContent_Declare(
+  littlefs
+  URL                        https://github.com/littlefs-project/littlefs/archive/refs/tags/v2.9.3.zip
+  SOURCE_DIR                 ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/Third_Party/littlefs
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+
+# Populate folders manually to avoid running their problematic CMakeLists.txt
+FetchContent_Populate(cjson)
+FetchContent_Populate(littlefs)
+
+# 2. SUBDIRECTORIES
+add_subdirectory(cmake/stm32cubemx)
+
+# 3. TARGET SOURCES
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user sources here
-    Middlewares/Third_Party/cJSON/cJSON.c
+    # User Application Sources
     Core/Src/api/apicore.c
     Core/Src/api/apicodec.c
     Core/Src/api/apihandlers.c
     Core/Src/Tasks/APITask.c
     Core/Src/Tasks/taskutils.c
+    Core/Src/Drivers/buzzer.c
     Core/Src/Drivers/mcu.c
     Core/Src/Drivers/thermistor.c
+    Core/Src/Drivers/thermocouple.c
+    
+    # Add third-party source files directly to your target
+    Middlewares/Third_Party/cJSON/cJSON.c
+    Middlewares/Third_Party/littlefs/lfs.c
+    Middlewares/Third_Party/littlefs/lfs_util.c
 )
 
-# Add include paths
+# 4. INCLUDE DIRECTORIES
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined include paths
-    Middlewares/Third_Party/cJSON
     Core/Inc/api
     Core/Inc/General
     Core/Inc/Tasks
     Core/Inc/Drivers
+    Middlewares/Third_Party/cJSON
+    Middlewares/Third_Party/littlefs
 )
 
-# Add project symbols (macros)
-target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined symbols
-)
-
-# Remove wrong libob.a library dependency when using cpp files
-list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)
-
-# Add linked libraries
+# 5. LINK LIBRARIES
 target_link_libraries(${CMAKE_PROJECT_NAME}
     stm32cubemx
-
-    # Add user defined libraries
 )
+
+# 6. REMOVE WRONG LIBOB.A
+list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)

@@ -47,7 +47,7 @@ typedef enum {
 
 typedef struct Payload {
     struct Payload* next;
-    uint8_t         data[ API_PAYLOAD_SIZE ];
+    char            data[ API_PAYLOAD_SIZE ];
 } Payload, *PayloadPtr;
 
 typedef struct APIPB {
@@ -62,7 +62,7 @@ typedef struct APIPB {
 
 typedef struct APIBuffer {
     struct APIBuffer* next; // Must be FIRST
-    uint8_t           data[ API_BUFFER_SIZE ];
+    char              data[ API_BUFFER_SIZE ];
     size_t            length;
 } APIBuffer, *APIBufferPtr;
 

@@ -22,6 +22,8 @@
 
 /* USER CODE BEGIN 0 */
 
+#include "thermocouple.h"
+
 /* USER CODE END 0 */
 
 SPI_HandleTypeDef hspi1;
@@ -88,6 +90,8 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* spiHandle)
 
   /* USER CODE BEGIN SPI1_MspInit 1 */
 
+  TCInitModule();
+  
   /* USER CODE END SPI1_MspInit 1 */
   }
 }

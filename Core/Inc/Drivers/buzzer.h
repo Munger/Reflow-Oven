@@ -31,7 +31,8 @@ typedef enum {
     BuzzerPatternPowerOn = 0,
     BuzzerPatternSuccess,
     BuzzerPatternError,
-    BuzzerPatternCritical
+    BuzzerPatternCritical,
+    BuzzerPatternLevelComplete
 } BuzzerPattern;
 
 typedef struct BuzzerTone {

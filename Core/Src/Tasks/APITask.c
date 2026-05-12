@@ -56,7 +56,7 @@ static void USBSendAll( void ) {
         if ( currentUSBBuffer->next != NULL ) {
             APIBufferPtr nextLink = currentUSBBuffer->next;
 
-            if ( CDC_Transmit_FS( nextLink->data, nextLink->length ) == USBD_OK ) {
+            if ( CDC_Transmit_FS( (uint8_t*) nextLink->data, nextLink->length ) == USBD_OK ) {
                 APIBufferPtr finished = currentUSBBuffer;
                 currentUSBBuffer = nextLink;
                 ReleaseBuffer( finished );
@@ -68,7 +68,7 @@ static void USBSendAll( void ) {
     currentUSBBuffer = DequeueBuffer( GetOutputQueue() );
 
     if ( currentUSBBuffer ) {
-        if ( CDC_Transmit_FS( currentUSBBuffer->data, currentUSBBuffer->length ) != USBD_OK ) {
+        if ( CDC_Transmit_FS( (uint8_t*) currentUSBBuffer->data, currentUSBBuffer->length ) != USBD_OK ) {
             xTaskNotify( APITaskHandle, 0x02, eSetBits );
         }
     }
@@ -82,7 +82,7 @@ void USBTxDoneHandler( void ) {
     APIBufferPtr nextLink = finished->next;
 
     if ( nextLink ) {
-        if ( CDC_Transmit_FS( nextLink->data, nextLink->length ) == USBD_OK ) {
+        if ( CDC_Transmit_FS( (uint8_t*) nextLink->data, nextLink->length ) == USBD_OK ) {
             currentUSBBuffer = nextLink;
             ReleaseBuffer( finished );
         } else {
