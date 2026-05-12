@@ -1,9 +1,9 @@
 #include <string.h>
 
-#include "taskutils.h"
 #include "adc.h"
 #include "main.h"
 #include "spi.h"
+#include "taskutils.h"
 #include "thermistor.h"
 #include "thermocouple.h"
 
@@ -11,33 +11,33 @@
 extern osMutexId_t SPIBusMutexHandle;
 
 typedef enum {
-    RegCr0     = 0x00,
-    RegCr1     = 0x01,
-    RegMask    = 0x02,
-    RegCjhf    = 0x03,
-    RegCjlf    = 0x04,
+    RegCr0 = 0x00,
+    RegCr1 = 0x01,
+    RegMask = 0x02,
+    RegCjhf = 0x03,
+    RegCjlf = 0x04,
     RegLthfMsb = 0x05,
-    RegCjto    = 0x09,
-    RegCjth    = 0x0A,
-    RegCjtl    = 0x0B,
-    RegLtcb2   = 0x0C,
-    RegLtcb1   = 0x0D,
-    RegLtcb0   = 0x0E,
-    RegSr      = 0x0F
+    RegCjto = 0x09,
+    RegCjth = 0x0A,
+    RegCjtl = 0x0B,
+    RegLtcb2 = 0x0C,
+    RegLtcb1 = 0x0D,
+    RegLtcb0 = 0x0E,
+    RegSr = 0x0F
 } MaxRegister;
 
 typedef enum {
     Cr0ConvModeAuto = 0x80,
-    Cr0OneShot      = 0x40,
+    Cr0OneShot = 0x40,
     Cr0OcFault100Ms = 0x10,
-    Cr0CjDisable    = 0x08, // Disable internal cold junction sensor
-    Cr1TypeK        = 0x03
+    Cr0CjDisable = 0x08, // Disable internal cold junction sensor
+    Cr1TypeK = 0x03
 } MaxConfig;
 
 struct Thermocouple {
     ThermocoupleID     id;
     ThermocoupleStatus status;
-    GPIO_TypeDef* csPort;
+    GPIO_TypeDef*      csPort;
     uint16_t           csPin;
     uint16_t           drdyPin;
     uint16_t           faultPin;
@@ -80,24 +80,25 @@ void TCInitModule( void ) {
     memset( instances, 0, sizeof( instances ) );
 
     // Instance 1 Hardware Mapping
-    instances[ Thermocouple1 ].id            = Thermocouple1;
-    instances[ Thermocouple1 ].csPort        = THERM1_CS_GPIO_Port;
-    instances[ Thermocouple1 ].csPin         = THERM1_CS_Pin;
-    instances[ Thermocouple1 ].drdyPin      = THERM1_DRDY_Pin;
-    instances[ Thermocouple1 ].faultPin     = THERM1_FAULT_Pin;
+    instances[ Thermocouple1 ].id = Thermocouple1;
+    instances[ Thermocouple1 ].csPort = THERM1_CS_GPIO_Port;
+    instances[ Thermocouple1 ].csPin = THERM1_CS_Pin;
+    instances[ Thermocouple1 ].drdyPin = THERM1_DRDY_Pin;
+    instances[ Thermocouple1 ].faultPin = THERM1_FAULT_Pin;
     instances[ Thermocouple1 ].externalCjtId = ThermistorCJT1;
 
     // Instance 2 Hardware Mapping
-    instances[ Thermocouple2 ].id            = Thermocouple2;
-    instances[ Thermocouple2 ].csPort        = THERM2_CS_GPIO_Port;
-    instances[ Thermocouple2 ].csPin         = THERM2_CS_Pin;
-    instances[ Thermocouple2 ].drdyPin      = THERM2_DRDY_Pin;
-    instances[ Thermocouple2 ].faultPin     = THERM2_FAULT_Pin;
+    instances[ Thermocouple2 ].id = Thermocouple2;
+    instances[ Thermocouple2 ].csPort = THERM2_CS_GPIO_Port;
+    instances[ Thermocouple2 ].csPin = THERM2_CS_Pin;
+    instances[ Thermocouple2 ].drdyPin = THERM2_DRDY_Pin;
+    instances[ Thermocouple2 ].faultPin = THERM2_FAULT_Pin;
     instances[ Thermocouple2 ].externalCjtId = ThermistorCJT2;
 
     for ( uint8_t i = 0; i < 2; i++ ) {
         TCWriteReg( &instances[ i ], RegCr1, Cr1TypeK );
-        TCWriteReg( &instances[ i ], RegCr0, (uint8_t)Cr0ConvModeAuto | (uint8_t)Cr0OcFault100Ms | (uint8_t)Cr0CjDisable );
+        TCWriteReg( &instances[ i ], RegCr0,
+                    (uint8_t)Cr0ConvModeAuto | (uint8_t)Cr0OcFault100Ms | (uint8_t)Cr0CjDisable );
     }
 }
 
@@ -118,18 +119,19 @@ void TCRequestSample( ThermocoupleRef tc ) {
         return;
     }
 
-#if FREE_RTOS
-    tc->waitingTask = xTaskGetCurrentTaskHandle();
-#else
-    tc->waitingTask = (void*)1;
-#endif
+    // Bulletproof Guard: If a conversion is already pending, do not reset state.
+    // This allows safe calling from fast loops.
+    if ( tc->waitingTask != NULL && !tc->dataReady ) {
+        return;
+    }
 
+    tc->waitingTask = xTaskGetCurrentTaskHandle();
     tc->dataReady = false;
 
     // Read the board-level NTC to use as the cold junction reference
-    Temperature cjt     = TMGetTemperature( tc->externalCjt );
+    Temperature cjt = TMGetTemperature( tc->externalCjt );
     int16_t     cj_bits = (int16_t)( ( cjt * 64 ) / 1000 );
-    
+
     // Acquire mutex once to ensure both CJT bytes are written without bus interruption
     if ( osMutexAcquire( SPIBusMutexHandle, osWaitForever ) == osOK ) {
         uint8_t tx_h[ 2 ] = { (uint8_t)( (uint8_t)RegCjth | 0x80 ), (uint8_t)( ( cj_bits >> 8 ) & 0xFF ) };
@@ -142,7 +144,7 @@ void TCRequestSample( ThermocoupleRef tc ) {
         HAL_GPIO_WritePin( tc->csPort, tc->csPin, GPIO_PIN_RESET );
         HAL_SPI_Transmit( &hspi1, tx_l, 2, 10 );
         HAL_GPIO_WritePin( tc->csPort, tc->csPin, GPIO_PIN_SET );
-        
+
         osMutexRelease( SPIBusMutexHandle );
     }
 }
@@ -154,19 +156,32 @@ bool TCIsReady( ThermocoupleRef tc ) {
 
 // Returns temperature in milli-degrees; blocks task until the DRDY interrupt fires
 Temperature TCGetTemperature( ThermocoupleRef tc ) {
-    if ( tc == NULL ) return 0;
+    if ( tc == NULL )
+        return 0;
 
-    // Use TaskUtils to yield CPU while waiting for the DRDY pin edge
     if ( !tc->dataReady ) {
-        ulTaskNotifyTake( pdTRUE, 200 );
+        // Clear stale notifications to ensure we only wake on a fresh edge
+        ulTaskNotifyValueClear( NULL, 0xFFFFFFFF );
+
+        // Block until notified by ISR or timeout
+        if ( ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS( 200 ) ) == 0 ) {
+            // Cleanup on timeout
+            tc->waitingTask = NULL;
+            tc->status = TCStatusHardwareFault;
+            return tc->lastTemp;
+        }
     }
+
+    // Success or already ready - clear handle for next cycle
+    tc->waitingTask = NULL;
 
     uint8_t regs[ 3 ];
     TCReadRegs( tc, RegLtcb2, regs, 3 );
 
     // Assemble the 19-bit signed value from 3 bytes
     int32_t val = ( (int32_t)regs[ 0 ] << 16 ) | ( (int32_t)regs[ 1 ] << 8 ) | regs[ 2 ];
-    if ( val & 0x800000 ) val |= 0xFF000000;
+    if ( val & 0x800000 )
+        val |= 0xFF000000;
 
     // Scaled to milli-degrees Celsius
     tc->lastTemp = ( val >> 5 ) * 1000 / 128;
@@ -180,18 +195,26 @@ Temperature TCGetCJT( ThermocoupleRef tc ) {
 
 // Decodes the MAX31856 Fault Status register
 ThermocoupleStatus TCGetStatus( ThermocoupleRef tc ) {
-    if ( tc == NULL ) return TCStatusHardwareFault;
+    if ( tc == NULL )
+        return TCStatusHardwareFault;
 
     uint8_t sr;
     TCReadRegs( tc, RegSr, &sr, 1 );
 
-    if ( sr & 0x01 ) return TCStatusOpenCircuit;
-    if ( sr & 0x02 ) return TCStatusShortToGND;
-    if ( sr & 0x04 ) return TCStatusShortToVCC;
-    if ( sr & 0x20 ) return TCStatusCJTRangeHigh;
-    if ( sr & 0x10 ) return TCStatusCJTRangeLow;
-    if ( sr & 0x80 ) return TCStatusRangeHigh;
-    if ( sr & 0x40 ) return TCStatusRangeLow;
+    if ( sr & 0x01 )
+        return TCStatusOpenCircuit;
+    if ( sr & 0x02 )
+        return TCStatusShortToGND;
+    if ( sr & 0x04 )
+        return TCStatusShortToVCC;
+    if ( sr & 0x20 )
+        return TCStatusCJTRangeHigh;
+    if ( sr & 0x10 )
+        return TCStatusCJTRangeLow;
+    if ( sr & 0x80 )
+        return TCStatusRangeHigh;
+    if ( sr & 0x40 )
+        return TCStatusRangeLow;
 
     return TCStatusOK;
 }
@@ -205,8 +228,13 @@ void TCNotifyInterrupt( uint16_t pin ) {
         if ( pin & tc->drdyPin ) {
             tc->dataReady = true;
             if ( tc->waitingTask != NULL ) {
-                BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-                vTaskNotifyGiveFromISR( tc->waitingTask, &xHigherPriorityTaskWoken );
+                BaseType_t   xHigherPriorityTaskWoken = pdFALSE;
+
+                // Copy handle and null immediately to prevent double-notification race
+                TaskHandle_t taskToNotify = tc->waitingTask;
+                tc->waitingTask = NULL;
+
+                vTaskNotifyGiveFromISR( taskToNotify, &xHigherPriorityTaskWoken );
                 portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
             }
         }
