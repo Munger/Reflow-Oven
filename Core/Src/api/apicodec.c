@@ -248,6 +248,12 @@ void ProcessStream( const uint8_t* data, uint32_t len ) {
     }
 }
 
+// Pull the next complete request from the queue for processing, or NULL if none available.
+// Caller must return the PB to the pool when done with ReleasePB()
+APIPBPtr GetNextRequest( void ) {
+    return DequeuePB( GetInputQueue() );
+}
+
 // Outbound
 
 static inline const char* GetStatusMessage( APIStatus status ) {
@@ -398,8 +404,4 @@ void APIQueueForSend( APIPBPtr pb ) {
     }
 
     ReleasePBMembers( pb );
-}
-
-APIPBPtr GetNextRequest( void ) {
-    return DequeuePB( GetInputQueue() );
 }

@@ -49,6 +49,10 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/api/apicore.c
     Core/Src/api/apicodec.c
     Core/Src/api/apihandlers.c
+    Core/Src/Tasks/APITask.c
+    Core/Src/Tasks/taskutils.c
+    Core/Src/Drivers/mcu.c
+    Core/Src/Drivers/thermistor.c
 )
 
 # Add include paths
@@ -56,6 +60,9 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
     Middlewares/Third_Party/cJSON
     Core/Inc/api
+    Core/Inc/General
+    Core/Inc/Tasks
+    Core/Inc/Drivers
 )
 
 # Add project symbols (macros)

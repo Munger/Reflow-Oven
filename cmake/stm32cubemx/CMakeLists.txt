@@ -17,8 +17,6 @@ set(MX_Defines_Syms
 # STM32CubeMX generated include paths
 set(MX_Include_Dirs
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Inc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../FATFS/Target
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../FATFS/App
     ${CMAKE_CURRENT_SOURCE_DIR}/../../USBPD/App
     ${CMAKE_CURRENT_SOURCE_DIR}/../../USBPD/Target
     ${CMAKE_CURRENT_SOURCE_DIR}/../../USB_Device/App
@@ -28,7 +26,6 @@ set(MX_Include_Dirs
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Middlewares/Third_Party/FreeRTOS/Source/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM0
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Middlewares/Third_Party/FatFs/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Middlewares/ST/STM32_USBPD_Library/Core/inc
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Middlewares/ST/STM32_USBPD_Library/Devices/STM32G0XX/inc
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Middlewares/ST/STM32_USB_Device_Library/Core/Inc
@@ -49,8 +46,6 @@ set(MX_Application_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/../../USBPD/Target/usbpd_dpm_user.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../USBPD/Target/usbpd_pwr_user.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../USBPD/Target/usbpd_vdm_user.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../FATFS/Target/user_diskio.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../FATFS/App/app_fatfs.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/gpio.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/app_freertos.c
@@ -144,13 +139,6 @@ set(USBPD_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Middlewares/ST/STM32_USBPD_Library/Devices/STM32G0XX/src/usbpd_pwr_hw_if.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Middlewares/ST/STM32_USBPD_Library/Devices/STM32G0XX/src/usbpd_timersserver.c
 )
-set(FatFs_Src
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Middlewares/Third_Party/FatFs/src/diskio.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Middlewares/Third_Party/FatFs/src/ff.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Middlewares/Third_Party/FatFs/src/ff_gen_drv.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Middlewares/Third_Party/FatFs/src/option/syscall.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Middlewares/Third_Party/FatFs/src/option/ccsbcs.c
-)
 
 # Link directories setup
 set(MX_LINK_DIRS
@@ -162,7 +150,7 @@ set(MX_LINK_LIBS
 	:USBPDCORE_PD3_FULL_CM0PLUS_wc32.a
     STM32_Drivers
     ${TOOLCHAIN_LINK_LIBRARIES}
-    USB_Device_Library	FreeRTOS	USBPD	FatFs	
+    USB_Device_Library	FreeRTOS	USBPD	
 )
 # Interface library for includes and symbols
 add_library(stm32cubemx INTERFACE)
@@ -189,11 +177,6 @@ target_link_libraries(FreeRTOS PUBLIC stm32cubemx)
 add_library(USBPD OBJECT)
 target_sources(USBPD PRIVATE ${USBPD_Src})
 target_link_libraries(USBPD PUBLIC stm32cubemx)
-
-# Create FatFs static library
-add_library(FatFs OBJECT)
-target_sources(FatFs PRIVATE ${FatFs_Src})
-target_link_libraries(FatFs PUBLIC stm32cubemx)
 
 # Add STM32CubeMX generated application sources to the project
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE ${MX_Application_Src})

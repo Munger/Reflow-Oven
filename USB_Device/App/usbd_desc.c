@@ -66,7 +66,7 @@
 #define USBD_LANGID_STRING     1033
 #define USBD_MANUFACTURER_STRING     "MungerWare"
 #define USBD_PID     22336
-#define USBD_PRODUCT_STRING     "VesuviOven Magma-Flow V1"
+#define USBD_PRODUCT_STRING     "VesuviOven MagmaFlow V1"
 #define USBD_CONFIGURATION_STRING     "CDC Config"
 #define USBD_INTERFACE_STRING     "CDC Interface"
 

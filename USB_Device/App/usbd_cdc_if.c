@@ -23,6 +23,7 @@
 
 /* USER CODE BEGIN INCLUDE */
 
+#include "APITask.h"
 #include "apicodec.h"
 
 /* USER CODE END INCLUDE */
@@ -311,6 +312,9 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
 {
   uint8_t result = USBD_OK;
   /* USER CODE BEGIN 13 */
+
+  USBTxDoneHandler(); // Notify the API task that the USB transmission is complete and it can send the next buffer if available
+
   UNUSED(Buf);
   UNUSED(Len);
   UNUSED(epnum);

@@ -21,6 +21,8 @@
 #include "main.h"
 /* USER CODE BEGIN Includes */
 
+#include "mcu.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -84,6 +86,8 @@ void HAL_MspInit(void)
 
   /* USER CODE BEGIN MspInit 1 */
 
+  McuInit();
+  
   /* USER CODE END MspInit 1 */
 }
 

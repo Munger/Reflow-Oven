@@ -1,8 +1,7 @@
 #ifndef APITYPES_H
 #define APITYPES_H
 
-#include <stdbool.h>
-#include <stddef.h>
+#include "types.h"
 
 enum {
     API_PAYLOAD_SIZE = 512,
@@ -48,13 +47,13 @@ typedef enum {
 
 typedef struct Payload {
     struct Payload* next;
-    char            data[ API_PAYLOAD_SIZE ];
+    uint8_t         data[ API_PAYLOAD_SIZE ];
 } Payload, *PayloadPtr;
 
 typedef struct APIPB {
     struct APIPB*          next;
     APIStatus              status;
-    char                   rawRequest[ API_REQUEST_MAX_LEN ];
+    uint8_t                rawRequest[ API_REQUEST_MAX_LEN ];
     const struct APIRoute* route;
     PayloadPtr             payload;
     APIMode                origin;
@@ -63,10 +62,8 @@ typedef struct APIPB {
 
 typedef struct APIBuffer {
     struct APIBuffer* next; // Must be FIRST
-    char              data[ API_BUFFER_SIZE ];
+    uint8_t           data[ API_BUFFER_SIZE ];
     size_t            length;
 } APIBuffer, *APIBufferPtr;
-
-
 
 #endif // APITYPES_H

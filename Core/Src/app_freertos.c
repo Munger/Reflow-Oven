@@ -1,20 +1,20 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * File Name          : app_freertos.c
-  * Description        : Code for freertos applications
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * File Name          : app_freertos.c
+ * Description        : Code for freertos applications
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2026 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
@@ -28,9 +28,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
-#include "apicore.h"
-#include "apicodec.h"
-#include "cJSON.h"
+#include "APITask.h"
 
 /* USER CODE END Includes */
 
@@ -60,17 +58,17 @@ const osThreadAttr_t WatchdogTask_attributes = {
   .priority = (osPriority_t) osPriorityHigh,
   .stack_size = 128 * 4
 };
-/* Definitions for SensorsTask */
-osThreadId_t SensorsTaskHandle;
-const osThreadAttr_t SensorsTask_attributes = {
-  .name = "SensorsTask",
-  .priority = (osPriority_t) osPriorityAboveNormal,
+/* Definitions for DeviceTask */
+osThreadId_t DeviceTaskHandle;
+const osThreadAttr_t DeviceTask_attributes = {
+  .name = "DeviceTask",
+  .priority = (osPriority_t) osPriorityNormal,
   .stack_size = 512 * 4
 };
-/* Definitions for InterfaceTask */
-osThreadId_t InterfaceTaskHandle;
-const osThreadAttr_t InterfaceTask_attributes = {
-  .name = "InterfaceTask",
+/* Definitions for APITask */
+osThreadId_t APITaskHandle;
+const osThreadAttr_t APITask_attributes = {
+  .name = "APITask",
   .priority = (osPriority_t) osPriorityNormal,
   .stack_size = 512 * 4
 };
@@ -80,6 +78,13 @@ const osThreadAttr_t LoggingTask_attributes = {
   .name = "LoggingTask",
   .priority = (osPriority_t) osPriorityBelowNormal,
   .stack_size = 256 * 4
+};
+/* Definitions for USBPDTask */
+osThreadId_t USBPDTaskHandle;
+const osThreadAttr_t USBPDTask_attributes = {
+  .name = "USBPDTask",
+  .priority = (osPriority_t) osPriorityAboveNormal,
+  .stack_size = 512 * 4
 };
 /* Definitions for SensorsQueue */
 osMessageQueueId_t SensorsQueueHandle;
@@ -105,14 +110,18 @@ const osEventFlagsAttr_t SystemStatusFlags_attributes = {
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 
-void APIReset( void );
+void                       APIReset( void );
+void                       APIPBQueued( void );
+void                       APIBufferQueued( void );
+void                       USBSendAll( void );
 
 /* USER CODE END FunctionPrototypes */
 
 void StartWatchdogTask(void *argument);
-void StartSensorsTask(void *argument);
-void StartInterfaceTask(void *argument);
+void StartDeviceTask(void *argument);
+void StartAPITask(void *argument);
 void StartLoggingTask(void *argument);
+void StartUSBPDTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -120,12 +129,12 @@ void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName);
 
 /* USER CODE BEGIN 4 */
-void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName)
-{
-   /* Run time stack overflow checking is performed if
-   configCHECK_FOR_STACK_OVERFLOW is defined to 1 or 2. This hook function is
-   called if a stack overflow is detected. */
+void                       vApplicationStackOverflowHook( xTaskHandle xTask, signed char* pcTaskName ) {
+    /* Run time stack overflow checking is performed if
+    configCHECK_FOR_STACK_OVERFLOW is defined to 1 or 2. This hook function is
+    called if a stack overflow is detected. */
 }
+
 /* USER CODE END 4 */
 
 /**
@@ -136,8 +145,6 @@ void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName)
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 
-  APIReset();
-
   /* USER CODE END Init */
   /* Create the mutex(es) */
   /* creation of SPIBusMutex */
@@ -147,15 +154,15 @@ void MX_FREERTOS_Init(void) {
   I2CBusMutexHandle = osMutexNew(&I2CBusMutex_attributes);
 
   /* USER CODE BEGIN RTOS_MUTEX */
-  /* add mutexes, ... */
+    /* add mutexes, ... */
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
-  /* add semaphores, ... */
+    /* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
-  /* start timers, add new ones, ... */
+    /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
 
   /* Create the queue(s) */
@@ -163,124 +170,130 @@ void MX_FREERTOS_Init(void) {
   SensorsQueueHandle = osMessageQueueNew (3, 48, &SensorsQueue_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
-  /* add queues, ... */
+    /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
   /* creation of WatchdogTask */
   WatchdogTaskHandle = osThreadNew(StartWatchdogTask, NULL, &WatchdogTask_attributes);
 
-  /* creation of SensorsTask */
-  SensorsTaskHandle = osThreadNew(StartSensorsTask, NULL, &SensorsTask_attributes);
+  /* creation of DeviceTask */
+  DeviceTaskHandle = osThreadNew(StartDeviceTask, NULL, &DeviceTask_attributes);
 
-  /* creation of InterfaceTask */
-  InterfaceTaskHandle = osThreadNew(StartInterfaceTask, NULL, &InterfaceTask_attributes);
+  /* creation of APITask */
+  APITaskHandle = osThreadNew(StartAPITask, NULL, &APITask_attributes);
 
   /* creation of LoggingTask */
   LoggingTaskHandle = osThreadNew(StartLoggingTask, NULL, &LoggingTask_attributes);
 
+  /* creation of USBPDTask */
+  USBPDTaskHandle = osThreadNew(StartUSBPDTask, NULL, &USBPDTask_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
+    /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
 
   /* creation of SystemStatusFlags */
   SystemStatusFlagsHandle = osEventFlagsNew(&SystemStatusFlags_attributes);
 
   /* USER CODE BEGIN RTOS_EVENTS */
-  /* add events, ... */
+    /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
 
 }
 
 /* USER CODE BEGIN Header_StartWatchdogTask */
 /**
-  * @brief  Function implementing the WatchdogTask thread.
-  * @param  argument: Not used
-  * @retval None
-  */
+ * @brief  Function implementing the WatchdogTask thread.
+ * @param  argument: Not used
+ * @retval None
+ */
 /* USER CODE END Header_StartWatchdogTask */
 void StartWatchdogTask(void *argument)
 {
   /* init code for USB_Device */
   MX_USB_Device_Init();
   /* USER CODE BEGIN StartWatchdogTask */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
+    /* Infinite loop */
+    for ( ;; ) {
+        osDelay( 1 );
+    }
   /* USER CODE END StartWatchdogTask */
 }
 
-/* USER CODE BEGIN Header_StartSensorsTask */
+/* USER CODE BEGIN Header_StartDeviceTask */
 /**
-* @brief Function implementing the SensorsTask thread.
+* @brief Function implementing the DeviceTask thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_StartSensorsTask */
-void StartSensorsTask(void *argument)
+/* USER CODE END Header_StartDeviceTask */
+void StartDeviceTask(void *argument)
 {
-  /* USER CODE BEGIN StartSensorsTask */
+  /* USER CODE BEGIN StartDeviceTask */
   /* Infinite loop */
   for(;;)
   {
     osDelay(1);
   }
-  /* USER CODE END StartSensorsTask */
+  /* USER CODE END StartDeviceTask */
 }
 
-/* USER CODE BEGIN Header_StartInterfaceTask */
+/* USER CODE BEGIN Header_StartAPITask */
 /**
-* @brief Function implementing the InterfaceTask thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_StartInterfaceTask */
-void StartInterfaceTask(void *argument)
+ * @brief Function implementing the APITask thread.
+ * @param argument: Not used
+ * @retval None
+ */
+/* USER CODE END Header_StartAPITask */
+void StartAPITask(void *argument)
 {
-  /* USER CODE BEGIN StartInterfaceTask */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END StartInterfaceTask */
+  /* USER CODE BEGIN StartAPITask */
+    APITaskInit();
+
+    for ( ;; ) {
+      APITaskLoop();
+    }
+  /* USER CODE END StartAPITask */
 }
 
 /* USER CODE BEGIN Header_StartLoggingTask */
 /**
-* @brief Function implementing the LoggingTask thread.
-* @param argument: Not used
-* @retval None
-*/
+ * @brief Function implementing the LoggingTask thread.
+ * @param argument: Not used
+ * @retval None
+ */
 /* USER CODE END Header_StartLoggingTask */
 void StartLoggingTask(void *argument)
 {
   /* USER CODE BEGIN StartLoggingTask */
+    /* Infinite loop */
+    for ( ;; ) {
+        osDelay( 1 );
+    }
+  /* USER CODE END StartLoggingTask */
+}
+
+/* USER CODE BEGIN Header_StartUSBPDTask */
+/**
+* @brief Function implementing the USBPDTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartUSBPDTask */
+void StartUSBPDTask(void *argument)
+{
+  /* USER CODE BEGIN StartUSBPDTask */
   /* Infinite loop */
   for(;;)
   {
     osDelay(1);
   }
-  /* USER CODE END StartLoggingTask */
+  /* USER CODE END StartUSBPDTask */
 }
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
-
-void APIReset( void ) {
-
-    APICoreInit();
-    APIStreamInit();
-
-    // Link cJSON to FreeRTOS Heap
-    cJSON_Hooks hooks = {
-        .malloc_fn = pvPortMalloc,
-        .free_fn = vPortFree
-    };
-    cJSON_InitHooks( &hooks );
-}
 
 /* USER CODE END Application */
 

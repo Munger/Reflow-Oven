@@ -21,7 +21,6 @@
 #include "cmsis_os.h"
 #include "adc.h"
 #include "dma.h"
-#include "app_fatfs.h"
 #include "i2c.h"
 #include "iwdg.h"
 #include "usart.h"
@@ -35,6 +34,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+
+#include "cJSON.h"
 
 /* USER CODE END Includes */
 
@@ -79,6 +80,10 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+  
+    // Link cJSON to FreeRTOS Heap
+    cJSON_Hooks hooks = { .malloc_fn = pvPortMalloc, .free_fn = vPortFree };
+    cJSON_InitHooks( &hooks );
 
   /* USER CODE END 1 */
 
@@ -108,9 +113,6 @@ int main(void)
   MX_I2C1_Init();
   MX_LPUART2_UART_Init();
   MX_UCPD1_Init();
-  if (MX_FATFS_Init() != APP_OK) {
-    Error_Handler();
-  }
   MX_SPI1_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
