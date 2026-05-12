@@ -53,4 +53,4 @@ Copyright © 2026 Tim Hosking
 
 Licensed under the MIT License.
 
-SAFETY WARNING: This device controls mains-voltage elements. A physical hardware-level thermal cutoff (thermal fuse) must be installed to prevent fire in the event of software or SSR failure.
+SAFETY WARNING: This device controls mains-voltage elements. A physical hardware-level thermal cutoff (thermal fuse) must be installed to prevent fire in the event of software or hardware switching failure.
