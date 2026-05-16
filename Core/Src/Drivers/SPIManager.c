@@ -1,11 +1,12 @@
 /// @file SPIManager.c
 ///
-/// @brief SPI bus manager — interrupt-driven and blocking transfer implementation.
+/// @brief SPI bus manager — multi-instance interrupt-driven and blocking transfer implementation.
 ///
-/// Owns a single SPIManager context wrapping hspi1. All operations are serialised
-/// through a binary semaphore (SPIBusSemHandle). CS assertion and de-assertion are
-/// managed internally. Async callbacks fire from HAL ISR context; sync calls block
-/// the calling task until completion or timeout.
+/// Each SPI bus is represented by a struct SPIInstance. SPIInitModule() binds all
+/// hardware handles and registers HAL callbacks. SPIOpen() returns an opaque SPIRef
+/// that callers pass to every transfer function — no HAL handle or bus number appears
+/// at call sites. All operations are serialised through a per-instance semaphore.
+/// CS assertion and de-assertion are managed internally.
 ///
 /// @copyright Copyright (c) 2026 Tim Hosking
 /// @see https://github.com/munger
@@ -14,59 +15,76 @@
 #include "SPIManager.h"
 #include "spi.h"
 
-/// @brief Semaphore created by CubeMX / app_freertos.c — guards exclusive bus access.
+/// @brief Semaphore created by CubeMX / app_freertos.c — guards exclusive SPIBus1 access.
 extern osSemaphoreId_t SPIBusSemHandle;
 
-/// @brief Private event flag group for SPI bus diagnostic status.
-/// @note Replaces the former public SPIStatusFlags extern. Use SPIInitModule() to
-///       initialise and the public API status bits to observe.
-static osEventFlagsId_t spiStatus;
-
-/// @brief Internal state for the singleton SPI bus manager.
-typedef struct {
+/// @brief Full internal state of one SPI bus instance.
+typedef struct SPIInstance {
+    SPIID              id;              ///< Bus identifier
     SPI_HandleTypeDef* hspi;            ///< Bound HAL handle
     osSemaphoreId_t    mutex;           ///< Semaphore protecting exclusive bus access
-    osEventFlagsId_t   flags;           ///< Private diagnostic event flags
+    osEventFlagsId_t   statusHandle;    ///< Per-instance diagnostic event flags
     SPICallback        currentCallback; ///< Callback to invoke on transfer completion
     GPIO_TypeDef*      currentCsPort;   ///< CS port for the active transfer
     uint16_t           currentCsPin;    ///< CS pin for the active transfer
-    volatile bool      isBusy;          ///< True while a transfer is in flight
-} SPIManager;
+} SPIInstance, *SPIInstancePtr;
 
-/// @brief Singleton manager instance — not accessible outside this translation unit.
-static SPIManager manager;
+/// @brief All SPI bus instances — indexed by SPIID.
+static SPIInstance instances[ SPIBusCount ];
 
 static void TransferComplete( SPI_HandleTypeDef* hspi );
 static void TransferError( SPI_HandleTypeDef* hspi );
 
-/// @brief Initialise the SPI manager, bind the hardware handle, and register HAL callbacks.
+/// @brief Find the instance whose bound handle matches @p hspi.
+/// @return Pointer to the matching instance, or NULL if not found.
+static SPIInstancePtr FindByHandle( SPI_HandleTypeDef* hspi ) {
+    for ( uint8_t i = 0; i < SPIBusCount; i++ ) {
+        if ( instances[ i ].hspi == hspi ) return &instances[ i ];
+    }
+    return NULL;
+}
+
+/// @brief Initialise all SPI bus instances, bind hardware handles, and register HAL callbacks.
 ///
-/// Verifies the peripheral is configured for 8-bit master mode and sets
+/// Verifies each peripheral is configured for 8-bit master mode and sets
 /// FlagSPIStatusConfigError if the data-size register does not match.
 /// @note Must be called once from task context before any transfers are attempted.
 void SPIInitModule( void ) {
-    spiStatus = osEventFlagsNew( NULL );
+    SPIInstancePtr spi = &instances[ SPIBus1 ];
+    spi->id            = SPIBus1;
+    spi->hspi          = &hspi1;
+    spi->mutex         = SPIBusSemHandle;
+    spi->statusHandle  = osEventFlagsNew( NULL );
+    spi->currentCallback = NULL;
 
-    manager.hspi = &hspi1;
-    manager.mutex = SPIBusSemHandle;
-    manager.flags = spiStatus;
-    manager.isBusy = false;
-    manager.currentCallback = NULL;
-
-    if ( manager.flags != NULL ) {
-        osEventFlagsClear( manager.flags, 0xFFFFFF );
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusReady ) );
+    if ( spi->statusHandle != NULL ) {
+        osEventFlagsClear( spi->statusHandle, 0xFFFFFF );
+        osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusReady ) );
     }
 
-    // Verify peripheral configuration matches our 8-bit / Master requirements
-    if ( manager.hspi->Init.DataSize != SPI_DATASIZE_8BIT ) {
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusConfigError ) );
+    if ( spi->hspi->Init.DataSize != SPI_DATASIZE_8BIT ) {
+        osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusConfigError ) );
     }
 
-    HAL_SPI_RegisterCallback( manager.hspi, HAL_SPI_RX_COMPLETE_CB_ID, TransferComplete );
-    HAL_SPI_RegisterCallback( manager.hspi, HAL_SPI_TX_COMPLETE_CB_ID, TransferComplete );
-    HAL_SPI_RegisterCallback( manager.hspi, HAL_SPI_TX_RX_COMPLETE_CB_ID, TransferComplete );
-    HAL_SPI_RegisterCallback( manager.hspi, HAL_SPI_ERROR_CB_ID, TransferError );
+    HAL_SPI_RegisterCallback( spi->hspi, HAL_SPI_RX_COMPLETE_CB_ID,    TransferComplete );
+    HAL_SPI_RegisterCallback( spi->hspi, HAL_SPI_TX_COMPLETE_CB_ID,    TransferComplete );
+    HAL_SPI_RegisterCallback( spi->hspi, HAL_SPI_TX_RX_COMPLETE_CB_ID, TransferComplete );
+    HAL_SPI_RegisterCallback( spi->hspi, HAL_SPI_ERROR_CB_ID,          TransferError );
+}
+
+/// @brief Return a handle to a specific SPI bus instance.
+/// @param[in] id Bus identifier.
+/// @return Handle to the instance, or NULL if @p id is out of range.
+SPIRef SPIOpen( SPIID id ) {
+    if ( id >= SPIBusCount ) return NULL;
+    return &instances[ id ];
+}
+
+/// @brief Return the full status bitmask for a specific SPI bus instance.
+/// @param[in] spi Handle returned by SPIOpen().
+/// @return Bitmask of SPIStatusBit flags; 0 if @p spi is NULL.
+uint32_t SPIGetStatus( SPIRef spi ) {
+    return ( spi != NULL ) ? osEventFlagsGet( spi->statusHandle ) : 0;
 }
 
 /// @brief Start an asynchronous interrupt-driven SPI read.
@@ -75,77 +93,71 @@ void SPIInitModule( void ) {
 /// the HAL receive; de-asserts CS automatically from the HAL callback on
 /// completion or error.
 ///
+/// @param[in]  spi    Handle returned by SPIOpen().
 /// @param[in]  csPort GPIO port for the chip-select line.
 /// @param[in]  csPin  GPIO pin for the chip-select line.
 /// @param[out] pData  Destination buffer; must remain valid until @p cb fires.
 /// @param[in]  len    Number of bytes to receive.
 /// @param[in]  cb     Completion callback invoked from HAL ISR context.
 /// @warning Do not call from ISR context.
-void SPIReadAsync( GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16_t len, SPICallback cb ) {
-    if ( pData == NULL || len == 0 ) {
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusInvalidParam ) );
+void SPIReadAsync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16_t len, SPICallback cb ) {
+    if ( spi == NULL || pData == NULL || len == 0 ) {
+        if ( spi != NULL ) osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusInvalidParam ) );
         if ( cb ) cb( false );
         return;
     }
 
-    if ( osSemaphoreAcquire( manager.mutex, 0 ) != osOK ) {
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusResourceConflict ) );
+    if ( osSemaphoreAcquire( spi->mutex, 0 ) != osOK ) {
+        osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusResourceConflict ) );
         if ( cb ) cb( false );
         return;
     }
 
-    manager.isBusy = true;
-    manager.currentCallback = cb;
-    manager.currentCsPort = csPort;
-    manager.currentCsPin = csPin;
+    spi->currentCallback = cb;
+    spi->currentCsPort   = csPort;
+    spi->currentCsPin    = csPin;
 
-    HAL_GPIO_WritePin( manager.currentCsPort, manager.currentCsPin, GPIO_PIN_RESET );
+    HAL_GPIO_WritePin( spi->currentCsPort, spi->currentCsPin, GPIO_PIN_RESET );
 
-    if ( HAL_SPI_Receive_IT( manager.hspi, pData, len ) != HAL_OK ) {
-        HAL_GPIO_WritePin( manager.currentCsPort, manager.currentCsPin, GPIO_PIN_SET );
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusBusError ) );
-        manager.isBusy = false;
-        osSemaphoreRelease( manager.mutex );
+    if ( HAL_SPI_Receive_IT( spi->hspi, pData, len ) != HAL_OK ) {
+        HAL_GPIO_WritePin( spi->currentCsPort, spi->currentCsPin, GPIO_PIN_SET );
+        osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusBusError ) );
+        osSemaphoreRelease( spi->mutex );
         if ( cb ) cb( false );
     }
 }
 
 /// @brief Start an asynchronous interrupt-driven SPI write.
-///
-/// Ideal for offloading large flash page programs or bulk device configuration
-/// without blocking the calling task.
-///
+/// @param[in] spi    Handle returned by SPIOpen().
 /// @param[in] csPort GPIO port for the chip-select line.
 /// @param[in] csPin  GPIO pin for the chip-select line.
 /// @param[in] pData  Source buffer; must remain valid until @p cb fires.
 /// @param[in] len    Number of bytes to transmit.
 /// @param[in] cb     Completion callback invoked from HAL ISR context.
 /// @warning Do not call from ISR context.
-void SPIWriteAsync( GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16_t len, SPICallback cb ) {
-    if ( pData == NULL || len == 0 ) {
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusInvalidParam ) );
+void SPIWriteAsync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16_t len, SPICallback cb ) {
+    if ( spi == NULL || pData == NULL || len == 0 ) {
+        if ( spi != NULL ) osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusInvalidParam ) );
         if ( cb ) cb( false );
         return;
     }
 
-    if ( osSemaphoreAcquire( manager.mutex, 0 ) != osOK ) {
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusResourceConflict ) );
+    if ( osSemaphoreAcquire( spi->mutex, 0 ) != osOK ) {
+        osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusResourceConflict ) );
         if ( cb ) cb( false );
         return;
     }
 
-    manager.isBusy = true;
-    manager.currentCallback = cb;
-    manager.currentCsPort = csPort;
-    manager.currentCsPin = csPin;
+    spi->currentCallback = cb;
+    spi->currentCsPort   = csPort;
+    spi->currentCsPin    = csPin;
 
-    HAL_GPIO_WritePin( manager.currentCsPort, manager.currentCsPin, GPIO_PIN_RESET );
+    HAL_GPIO_WritePin( spi->currentCsPort, spi->currentCsPin, GPIO_PIN_RESET );
 
-    if ( HAL_SPI_Transmit_IT( manager.hspi, pData, len ) != HAL_OK ) {
-        HAL_GPIO_WritePin( manager.currentCsPort, manager.currentCsPin, GPIO_PIN_SET );
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusBusError ) );
-        manager.isBusy = false;
-        osSemaphoreRelease( manager.mutex );
+    if ( HAL_SPI_Transmit_IT( spi->hspi, pData, len ) != HAL_OK ) {
+        HAL_GPIO_WritePin( spi->currentCsPort, spi->currentCsPin, GPIO_PIN_SET );
+        osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusBusError ) );
+        osSemaphoreRelease( spi->mutex );
         if ( cb ) cb( false );
     }
 }
@@ -155,6 +167,7 @@ void SPIWriteAsync( GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16
 /// The transfer length passed to HAL is max(txLen, rxLen) so the peripheral
 /// clocks the longer phase correctly in full-duplex mode.
 ///
+/// @param[in]  spi      Handle returned by SPIOpen().
 /// @param[in]  csPort   GPIO port for the chip-select line.
 /// @param[in]  csPin    GPIO pin for the chip-select line.
 /// @param[in]  pTxData  Transmit buffer; must remain valid until @p cb fires.
@@ -163,36 +176,35 @@ void SPIWriteAsync( GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16
 /// @param[in]  rxLen    Number of bytes to receive.
 /// @param[in]  cb       Completion callback invoked from HAL ISR context.
 /// @warning Do not call from ISR context.
-void SPITransceiveAsync( GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pTxData, uint16_t txLen, uint8_t* pRxData, uint16_t rxLen, SPICallback cb ) {
-    if ( pTxData == NULL || pRxData == NULL || txLen == 0 || rxLen == 0 ) {
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusInvalidParam ) );
+void SPITransceiveAsync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pTxData, uint16_t txLen, uint8_t* pRxData, uint16_t rxLen, SPICallback cb ) {
+    if ( spi == NULL || pTxData == NULL || pRxData == NULL || txLen == 0 || rxLen == 0 ) {
+        if ( spi != NULL ) osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusInvalidParam ) );
         if ( cb ) cb( false );
         return;
     }
 
-    if ( osSemaphoreAcquire( manager.mutex, 0 ) != osOK ) {
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusResourceConflict ) );
+    if ( osSemaphoreAcquire( spi->mutex, 0 ) != osOK ) {
+        osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusResourceConflict ) );
         if ( cb ) cb( false );
         return;
     }
 
-    manager.isBusy = true;
-    manager.currentCallback = cb;
-    manager.currentCsPort = csPort;
-    manager.currentCsPin = csPin;
+    spi->currentCallback = cb;
+    spi->currentCsPort   = csPort;
+    spi->currentCsPin    = csPin;
 
-    HAL_GPIO_WritePin( manager.currentCsPort, manager.currentCsPin, GPIO_PIN_RESET );
+    HAL_GPIO_WritePin( spi->currentCsPort, spi->currentCsPin, GPIO_PIN_RESET );
 
-    if ( HAL_SPI_TransmitReceive_IT( manager.hspi, pTxData, pRxData, ( txLen > rxLen ) ? txLen : rxLen ) != HAL_OK ) {
-        HAL_GPIO_WritePin( manager.currentCsPort, manager.currentCsPin, GPIO_PIN_SET );
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusBusError ) );
-        manager.isBusy = false;
-        osSemaphoreRelease( manager.mutex );
+    if ( HAL_SPI_TransmitReceive_IT( spi->hspi, pTxData, pRxData, ( txLen > rxLen ) ? txLen : rxLen ) != HAL_OK ) {
+        HAL_GPIO_WritePin( spi->currentCsPort, spi->currentCsPin, GPIO_PIN_SET );
+        osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusBusError ) );
+        osSemaphoreRelease( spi->mutex );
         if ( cb ) cb( false );
     }
 }
 
 /// @brief Perform a synchronous blocking SPI read.
+/// @param[in]  spi      Handle returned by SPIOpen().
 /// @param[in]  csPort   GPIO port for the chip-select line.
 /// @param[in]  csPin    GPIO pin for the chip-select line.
 /// @param[out] pData    Destination buffer.
@@ -200,30 +212,31 @@ void SPITransceiveAsync( GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pTxData,
 /// @param[in]  timeout  Maximum wait in milliseconds.
 /// @return true on success, false on timeout or bus error.
 /// @warning Only call from task context, not ISR.
-bool SPIReadSync( GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16_t len, uint32_t timeout ) {
-    if ( pData == NULL || len == 0 ) {
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusInvalidParam ) );
+bool SPIReadSync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16_t len, uint32_t timeout ) {
+    if ( spi == NULL || pData == NULL || len == 0 ) {
+        if ( spi != NULL ) osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusInvalidParam ) );
         return false;
     }
 
-    if ( osSemaphoreAcquire( manager.mutex, timeout ) != osOK ) {
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusTimeout ) );
+    if ( osSemaphoreAcquire( spi->mutex, timeout ) != osOK ) {
+        osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusTimeout ) );
         return false;
     }
 
     HAL_GPIO_WritePin( csPort, csPin, GPIO_PIN_RESET );
-    HAL_StatusTypeDef status = HAL_SPI_Receive( manager.hspi, pData, len, timeout );
+    HAL_StatusTypeDef status = HAL_SPI_Receive( spi->hspi, pData, len, timeout );
     HAL_GPIO_WritePin( csPort, csPin, GPIO_PIN_SET );
 
     if ( status != HAL_OK ) {
-        osEventFlagsSet( manager.flags, ( status == HAL_TIMEOUT ) ? BIT( FlagSPIStatusTimeout ) : BIT( FlagSPIStatusBusError ) );
+        osEventFlagsSet( spi->statusHandle, ( status == HAL_TIMEOUT ) ? BIT( FlagSPIStatusTimeout ) : BIT( FlagSPIStatusBusError ) );
     }
 
-    osSemaphoreRelease( manager.mutex );
+    osSemaphoreRelease( spi->mutex );
     return ( status == HAL_OK );
 }
 
 /// @brief Perform a synchronous blocking SPI write.
+/// @param[in] spi      Handle returned by SPIOpen().
 /// @param[in] csPort   GPIO port for the chip-select line.
 /// @param[in] csPin    GPIO pin for the chip-select line.
 /// @param[in] pData    Source buffer.
@@ -231,30 +244,31 @@ bool SPIReadSync( GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16_t
 /// @param[in] timeout  Maximum wait in milliseconds.
 /// @return true on success, false on timeout or bus error.
 /// @warning Only call from task context, not ISR.
-bool SPIWriteSync( GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16_t len, uint32_t timeout ) {
-    if ( pData == NULL || len == 0 ) {
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusInvalidParam ) );
+bool SPIWriteSync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16_t len, uint32_t timeout ) {
+    if ( spi == NULL || pData == NULL || len == 0 ) {
+        if ( spi != NULL ) osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusInvalidParam ) );
         return false;
     }
 
-    if ( osSemaphoreAcquire( manager.mutex, timeout ) != osOK ) {
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusTimeout ) );
+    if ( osSemaphoreAcquire( spi->mutex, timeout ) != osOK ) {
+        osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusTimeout ) );
         return false;
     }
 
     HAL_GPIO_WritePin( csPort, csPin, GPIO_PIN_RESET );
-    HAL_StatusTypeDef status = HAL_SPI_Transmit( manager.hspi, pData, len, timeout );
+    HAL_StatusTypeDef status = HAL_SPI_Transmit( spi->hspi, pData, len, timeout );
     HAL_GPIO_WritePin( csPort, csPin, GPIO_PIN_SET );
 
     if ( status != HAL_OK ) {
-        osEventFlagsSet( manager.flags, ( status == HAL_TIMEOUT ) ? BIT( FlagSPIStatusTimeout ) : BIT( FlagSPIStatusBusError ) );
+        osEventFlagsSet( spi->statusHandle, ( status == HAL_TIMEOUT ) ? BIT( FlagSPIStatusTimeout ) : BIT( FlagSPIStatusBusError ) );
     }
 
-    osSemaphoreRelease( manager.mutex );
+    osSemaphoreRelease( spi->mutex );
     return ( status == HAL_OK );
 }
 
 /// @brief Perform an atomic synchronous write-then-read without CS toggling between phases.
+/// @param[in]  spi      Handle returned by SPIOpen().
 /// @param[in]  csPort   GPIO port for the chip-select line.
 /// @param[in]  csPin    GPIO pin for the chip-select line.
 /// @param[in]  pTxData  Transmit buffer.
@@ -264,31 +278,31 @@ bool SPIWriteSync( GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16_
 /// @param[in]  timeout  Maximum wait in milliseconds.
 /// @return true on success, false on timeout or bus error.
 /// @warning Only call from task context, not ISR.
-bool SPITransceiveSync( GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pTxData, uint16_t txLen, uint8_t* pRxData, uint16_t rxLen, uint32_t timeout ) {
-    if ( pTxData == NULL || pRxData == NULL || txLen == 0 || rxLen == 0 ) {
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusInvalidParam ) );
+bool SPITransceiveSync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pTxData, uint16_t txLen, uint8_t* pRxData, uint16_t rxLen, uint32_t timeout ) {
+    if ( spi == NULL || pTxData == NULL || pRxData == NULL || txLen == 0 || rxLen == 0 ) {
+        if ( spi != NULL ) osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusInvalidParam ) );
         return false;
     }
 
-    if ( osSemaphoreAcquire( manager.mutex, timeout ) != osOK ) {
-        osEventFlagsSet( manager.flags, BIT( FlagSPIStatusTimeout ) );
+    if ( osSemaphoreAcquire( spi->mutex, timeout ) != osOK ) {
+        osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusTimeout ) );
         return false;
     }
 
     HAL_GPIO_WritePin( csPort, csPin, GPIO_PIN_RESET );
 
-    HAL_StatusTypeDef status = HAL_SPI_Transmit( manager.hspi, pTxData, txLen, timeout );
+    HAL_StatusTypeDef status = HAL_SPI_Transmit( spi->hspi, pTxData, txLen, timeout );
     if ( status == HAL_OK ) {
-        status = HAL_SPI_Receive( manager.hspi, pRxData, rxLen, timeout );
+        status = HAL_SPI_Receive( spi->hspi, pRxData, rxLen, timeout );
     }
 
     HAL_GPIO_WritePin( csPort, csPin, GPIO_PIN_SET );
 
     if ( status != HAL_OK ) {
-        osEventFlagsSet( manager.flags, ( status == HAL_TIMEOUT ) ? BIT( FlagSPIStatusTimeout ) : BIT( FlagSPIStatusBusError ) );
+        osEventFlagsSet( spi->statusHandle, ( status == HAL_TIMEOUT ) ? BIT( FlagSPIStatusTimeout ) : BIT( FlagSPIStatusBusError ) );
     }
 
-    osSemaphoreRelease( manager.mutex );
+    osSemaphoreRelease( spi->mutex );
     return ( status == HAL_OK );
 }
 
@@ -297,21 +311,21 @@ bool SPITransceiveSync( GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pTxData, 
 /// De-asserts CS, clears transient error flags, releases the semaphore, and
 /// fires the caller's completion callback with success=true.
 ///
-/// @param[in] hspi HAL handle (unused; singleton manager is used directly).
+/// @param[in] hspi HAL handle; used to locate the correct instance.
 /// @warning Called from HAL ISR context. Must not call any FreeRTOS blocking API.
 static void TransferComplete( SPI_HandleTypeDef* hspi ) {
-    UNUSED( hspi );
+    SPIInstancePtr spi = FindByHandle( hspi );
+    if ( spi == NULL ) return;
 
-    HAL_GPIO_WritePin( manager.currentCsPort, manager.currentCsPin, GPIO_PIN_SET );
+    HAL_GPIO_WritePin( spi->currentCsPort, spi->currentCsPin, GPIO_PIN_SET );
 
-    SPICallback cb = manager.currentCallback;
-    manager.isBusy = false;
+    SPICallback cb = spi->currentCallback;
 
-    if ( manager.flags != NULL ) {
-        osEventFlagsClear( manager.flags, BIT( FlagSPIStatusBusError ) | BIT( FlagSPIStatusOverrun ) );
+    if ( spi->statusHandle != NULL ) {
+        osEventFlagsClear( spi->statusHandle, BIT( FlagSPIStatusBusError ) | BIT( FlagSPIStatusOverrun ) );
     }
 
-    osSemaphoreRelease( manager.mutex );
+    osSemaphoreRelease( spi->mutex );
     if ( cb ) {
         cb( true );
     }
@@ -323,25 +337,27 @@ static void TransferComplete( SPI_HandleTypeDef* hspi ) {
 /// FlagSPIFault in the global fault group, releases the semaphore, and fires
 /// the caller's completion callback with success=false.
 ///
-/// @param[in] hspi HAL handle used to retrieve the HAL error code.
+/// @param[in] hspi HAL handle used to locate the instance and retrieve the error code.
 /// @warning Called from HAL ISR context. Must not call any FreeRTOS blocking API.
 static void TransferError( SPI_HandleTypeDef* hspi ) {
+    SPIInstancePtr spi = FindByHandle( hspi );
+    if ( spi == NULL ) return;
+
     uint32_t err = HAL_SPI_GetError( hspi );
 
-    HAL_GPIO_WritePin( manager.currentCsPort, manager.currentCsPin, GPIO_PIN_SET );
+    HAL_GPIO_WritePin( spi->currentCsPort, spi->currentCsPin, GPIO_PIN_SET );
 
-    if ( manager.flags != NULL ) {
-        if ( err & HAL_SPI_ERROR_OVR )  osEventFlagsSet( manager.flags, BIT( FlagSPIStatusOverrun ) );
-        if ( err & HAL_SPI_ERROR_CRC )  osEventFlagsSet( manager.flags, BIT( FlagSPIStatusCRCError ) );
-        if ( err & HAL_SPI_ERROR_DMA )  osEventFlagsSet( manager.flags, BIT( FlagSPIStatusDMAError ) );
-        if ( err & HAL_SPI_ERROR_MODF ) osEventFlagsSet( manager.flags, BIT( FlagSPIStatusBusError ) );
+    if ( spi->statusHandle != NULL ) {
+        if ( err & HAL_SPI_ERROR_OVR )  osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusOverrun ) );
+        if ( err & HAL_SPI_ERROR_CRC )  osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusCRCError ) );
+        if ( err & HAL_SPI_ERROR_DMA )  osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusDMAError ) );
+        if ( err & HAL_SPI_ERROR_MODF ) osEventFlagsSet( spi->statusHandle, BIT( FlagSPIStatusBusError ) );
     }
 
     osEventFlagsSet( FaultFlagsHandle, BIT( FlagSPIFault ) );
 
-    SPICallback cb = manager.currentCallback;
-    manager.isBusy = false;
-    osSemaphoreRelease( manager.mutex );
+    SPICallback cb = spi->currentCallback;
+    osSemaphoreRelease( spi->mutex );
 
     if ( cb ) {
         cb( false );

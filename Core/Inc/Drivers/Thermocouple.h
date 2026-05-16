@@ -16,6 +16,7 @@
 
 #include "Types.h"
 #include "SystemStatusFlags.h"
+#include "SPIManager.h"
 
 /// @brief Identifiers for the two thermocouple channels.
 typedef enum {
@@ -39,6 +40,8 @@ typedef enum {
     FlagTCStatusRangeHigh,        ///< Thermocouple temperature above the configured upper limit
     FlagTCStatusCJTMismatch,      ///< Injected CJT differs significantly from internal measurement
     FlagTCStatusHardwareFault,    ///< SPI communication failure or internal IC error
+    FlagTCStatusSamplePending,    ///< CJT injection and conversion cycle queued; not yet applied.
+    FlagTCStatusFaultPending,     ///< FAULT ISR fired; status register not yet read by TCProcess().
 
     TCFlagsCount
 } ThermocoupleStatusBit;
@@ -54,10 +57,17 @@ typedef struct Thermocouple* ThermocoupleRef;
 /// Configures Type-K thermocouple mode, auto-conversion, and open-circuit detection.
 void               TCInitModule( void );
 
-/// @brief Open a handle to a specific thermocouple instance.
+/// @brief Open a handle to a specific thermocouple instance and configure the MAX31856.
+///
+/// On first call for a given ID: stores the SPI bus reference, writes CR0/CR1 to
+/// the MAX31856 hardware, resolves the CJT thermistor reference, and signals
+/// DeviceStatusFlagsHandle. Subsequent calls with the same ID return the existing
+/// instance without re-configuring hardware.
+///
 /// @param[in] thermocoupleID Channel identifier (Thermocouple1 or Thermocouple2).
-/// @return Handle to the instance. Also resolves the external CJT thermistor reference.
-ThermocoupleRef    TCOpen( ThermocoupleID thermocoupleID );
+/// @param[in] spi            SPI bus handle returned by SPIOpen().
+/// @return Handle to the instance.
+ThermocoupleRef    TCOpen( ThermocoupleID thermocoupleID, SPIRef spi );
 
 /// @brief Signal that a new conversion should begin on the next TCProcess() tick.
 /// @param[in] tc Handle returned by TCOpen().
@@ -107,9 +117,9 @@ void               TCProcess( void );
 /// @warning ISR context. Sets event flags only — no SPI access, no FreeRTOS blocking API.
 void               TCHandleDRDYInterrupt( uint16_t GPIO_Pin );
 
-/// @brief ISR handler for the FAULT pin — sets faultPending in the matching instance.
+/// @brief ISR handler for the FAULT pin — sets FlagTCStatusFaultPending in the matching instance.
 /// @param[in] GPIO_Pin HAL pin mask; compared against each instance's faultPin.
-/// @warning ISR context. Sets a volatile bool only — SPI fault register read is deferred to TCProcess().
+/// @warning ISR context. osEventFlagsSet() only — SPI fault register read is deferred to TCProcess().
 void               TCHandleFaultInterrupt( uint16_t GPIO_Pin );
 
 #endif // THERMOCOUPLE_H

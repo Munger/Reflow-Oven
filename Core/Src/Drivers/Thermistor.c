@@ -20,29 +20,29 @@
 #include "adc.h"
 
 /// @brief Total number of ADC channels in the DMA conversion sequence.
-#define ADC_RANK_COUNT 7
+enum { kAdcRankCount = 7 };
 
-/// @brief Number of entries in each linearisation lookup table (32 intervals + end).
-#define TABLE_SIZE     32
+/// @brief Number of intervals in each linearisation lookup table (33 entries total).
+enum { kTableSize = 32 };
 
 /// @brief DMA-populated ADC sample buffer, shared with mcu.c for internal channels.
 /// Indices 0–2 are thermistor channels; 4–6 are used by the MCU driver.
-AdcRaw AdcDataBuffer[ ADC_RANK_COUNT ];
+AdcRaw AdcDataBuffer[ kAdcRankCount ];
 
 /// @brief ADC handle pointer used to start DMA and check peripheral state.
 static ADC_HandleTypeDef* pAdcHandle = NULL;
 
 /// @brief Number of 12-bit ADC counts per lookup table step (4096 / 32 = 128).
-static const uint16_t AdcStepShift = 7;
+static const uint16_t kAdcStepShift = 7;
 
 /// @brief Bitmask for the fractional count within a single lookup table step.
-static const uint16_t AdcStepMask  = 127;
+static const uint16_t kAdcStepMask  = 127;
 
 /// @brief ADC values within this distance from the supply rail are treated as open-circuit.
-static const uint16_t FaultMarginLow  = 50;
+static const uint16_t kFaultMarginLow  = 50;
 
 /// @brief ADC values within this distance from the rail opposite to normal are treated as short.
-static const uint16_t FaultMarginHigh = 4045;
+static const uint16_t kFaultMarginHigh = 4045;
 
 /// @brief Piecewise linearisation table for the CJT (cold-junction) NTC thermistors.
 /// 33 entries covering the full 12-bit ADC range (ascending ADC → increasing temperature).
@@ -141,15 +141,15 @@ Temperature TMGetTemperature( ThermistorRef thermistor ) {
     AdcRaw raw = AdcDataBuffer[ thermistor->bufferIndex ];
     const Temperature* table = ( thermistor->id == ThermistorOven ) ? OvenTable : CjtTable;
 
-    uint16_t index = raw >> AdcStepShift;
-    if ( index >= TABLE_SIZE ) index = TABLE_SIZE - 1;
+    uint16_t index = raw >> kAdcStepShift;
+    if ( index >= kTableSize ) index = kTableSize - 1;
 
-    uint16_t remainder = raw & AdcStepMask;
+    uint16_t remainder = raw & kAdcStepMask;
     Temperature y0 = table[ index ];
     Temperature y1 = table[ index + 1 ];
 
     int32_t deltaY = ( int32_t )y1 - ( int32_t )y0;
-    return y0 + ( ( deltaY * ( int32_t )remainder ) >> AdcStepShift );
+    return y0 + ( ( deltaY * ( int32_t )remainder ) >> kAdcStepShift );
 }
 
 /// @brief Evaluate fault thresholds for all channels and update status and global fault flags.
@@ -177,11 +177,11 @@ void TMProcess( void ) {
             // CJT channels: high ADC → open, low ADC → short.
             // Oven channel: high ADC → short, low ADC → open.
             if ( tm->id == ThermistorOven ) {
-                if ( raw >= FaultMarginHigh ) set |= BIT( FlagTMStatusOpenCircuit );
-                if ( raw <= FaultMarginLow )  set |= BIT( FlagTMStatusShortCircuit );
+                if ( raw >= kFaultMarginHigh ) set |= BIT( FlagTMStatusOpenCircuit );
+                if ( raw <= kFaultMarginLow )  set |= BIT( FlagTMStatusShortCircuit );
             } else {
-                if ( raw <= FaultMarginLow )  set |= BIT( FlagTMStatusOpenCircuit );
-                if ( raw >= FaultMarginHigh ) set |= BIT( FlagTMStatusShortCircuit );
+                if ( raw <= kFaultMarginLow )  set |= BIT( FlagTMStatusOpenCircuit );
+                if ( raw >= kFaultMarginHigh ) set |= BIT( FlagTMStatusShortCircuit );
             }
         }
 

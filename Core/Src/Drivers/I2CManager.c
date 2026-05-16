@@ -1,12 +1,11 @@
 /// @file I2CManager.c
 ///
-/// @brief I2C bus manager — interrupt-driven and blocking transfer implementation.
+/// @brief I2C bus manager — multi-instance interrupt-driven and blocking transfer implementation.
 ///
-/// Owns a single I2CManager context that wraps hi2c1. All public operations
-/// are serialised through a binary semaphore (I2CBusSemHandle). The async API
-/// registers HAL callbacks that release the semaphore and fire the caller's
-/// callback from ISR context. The sync API blocks the calling task until the
-/// transfer completes or the timeout expires.
+/// Each I2C bus is represented by a struct I2CInstance. I2CInitModule() binds all
+/// hardware handles and registers HAL callbacks. I2COpen() returns an opaque I2CRef
+/// that callers pass to every transfer function — no HAL handle or bus number appears
+/// at call sites. All operations are serialised through a per-instance semaphore.
 ///
 /// @copyright Copyright (c) 2026 Tim Hosking
 /// @see https://github.com/munger
@@ -15,56 +14,74 @@
 #include "I2CManager.h"
 #include "i2c.h"
 
-/// @brief Semaphore created by CubeMX / app_freertos.c — guards exclusive bus access.
+/// @brief Semaphore created by CubeMX / app_freertos.c — guards exclusive I2CBus1 access.
 extern osSemaphoreId_t I2CBusSemHandle;
 
-/// @brief Private event flag group for I2C bus diagnostic status.
-/// @note Replaces the former public I2CStatusFlags extern. Use I2CInitModule() to
-///       initialise and the public API status bits to observe.
-static osEventFlagsId_t i2cStatus;
-
-/// @brief Internal state for the singleton I2C bus manager.
-typedef struct {
-    I2C_HandleTypeDef* hi2c;            ///< Bound HAL handle
+/// @brief Full internal state of one I2C bus instance.
+typedef struct I2CInstance {
+    I2CID              id;              ///< Bus identifier
+    I2C_HandleTypeDef* hi2c;           ///< Bound HAL handle
     osSemaphoreId_t    mutex;           ///< Semaphore protecting exclusive bus access
-    osEventFlagsId_t   flags;           ///< Private diagnostic event flags
+    osEventFlagsId_t   statusHandle;    ///< Per-instance diagnostic event flags
     I2CCallback        currentCallback; ///< Callback to invoke when the current transfer completes
-    volatile bool      isBusy;          ///< True while a transfer is in flight
-} I2CManager;
+} I2CInstance, *I2CInstancePtr;
 
-/// @brief Singleton manager instance — not accessible outside this translation unit.
-static I2CManager manager;
+/// @brief All I2C bus instances — indexed by I2CID.
+static I2CInstance instances[ I2CBusCount ];
 
 static void TransferComplete( I2C_HandleTypeDef* hi2c );
 static void TransferError( I2C_HandleTypeDef* hi2c );
 
-/// @brief Initialise the I2C manager, bind hardware handles, and register HAL callbacks.
+/// @brief Find the instance whose bound handle matches @p hi2c.
+/// @return Pointer to the matching instance, or NULL if not found.
+static I2CInstancePtr FindByHandle( I2C_HandleTypeDef* hi2c ) {
+    for ( uint8_t i = 0; i < I2CBusCount; i++ ) {
+        if ( instances[ i ].hi2c == hi2c ) return &instances[ i ];
+    }
+    return NULL;
+}
+
+/// @brief Initialise all I2C bus instances, bind hardware handles, and register HAL callbacks.
 /// @note Must be called once from task context before any transfers are attempted.
 void I2CInitModule( void ) {
-    i2cStatus = osEventFlagsNew( NULL );
+    I2CInstancePtr i2c = &instances[ I2CBus1 ];
+    i2c->id              = I2CBus1;
+    i2c->hi2c            = &hi2c1;
+    i2c->mutex           = I2CBusSemHandle;
+    i2c->statusHandle    = osEventFlagsNew( NULL );
+    i2c->currentCallback = NULL;
 
-    manager.hi2c = &hi2c1;
-    manager.mutex = I2CBusSemHandle;
-    manager.flags = i2cStatus;
-    manager.isBusy = false;
-    manager.currentCallback = NULL;
-
-    if ( manager.flags != NULL ) {
-        osEventFlagsClear( manager.flags, 0xFFFFFF );
-        osEventFlagsSet( manager.flags, BIT( FlagI2C1StatusReady ) );
+    if ( i2c->statusHandle != NULL ) {
+        osEventFlagsClear( i2c->statusHandle, 0xFFFFFF );
+        osEventFlagsSet( i2c->statusHandle, BIT( FlagI2CStatusReady ) );
     }
 
-    HAL_I2C_RegisterCallback( manager.hi2c, HAL_I2C_MEM_RX_COMPLETE_CB_ID, TransferComplete );
-    HAL_I2C_RegisterCallback( manager.hi2c, HAL_I2C_ERROR_CB_ID, TransferError );
+    HAL_I2C_RegisterCallback( i2c->hi2c, HAL_I2C_MEM_RX_COMPLETE_CB_ID, TransferComplete );
+    HAL_I2C_RegisterCallback( i2c->hi2c, HAL_I2C_ERROR_CB_ID,           TransferError );
+}
+
+/// @brief Return a handle to a specific I2C bus instance.
+/// @param[in] id Bus identifier.
+/// @return Handle to the instance, or NULL if @p id is out of range.
+I2CRef I2COpen( I2CID id ) {
+    if ( id >= I2CBusCount ) return NULL;
+    return &instances[ id ];
+}
+
+/// @brief Return the full status bitmask for a specific I2C bus instance.
+/// @param[in] i2c Handle returned by I2COpen().
+/// @return Bitmask of I2CStatusBit flags; 0 if @p i2c is NULL.
+uint32_t I2CGetStatus( I2CRef i2c ) {
+    return ( i2c != NULL ) ? osEventFlagsGet( i2c->statusHandle ) : 0;
 }
 
 /// @brief Start an asynchronous interrupt-driven memory read.
 ///
 /// Acquires the bus semaphore with zero timeout (non-blocking). If the bus is
 /// already in use, returns HAL_BUSY immediately without modifying state.
-/// On HAL failure, the semaphore is released and the status flags are updated
-/// before returning.
+/// On HAL failure, the semaphore is released and the status flags are updated.
 ///
+/// @param[in]  i2c     Handle returned by I2COpen().
 /// @param[in]  devAddr 7-bit device address shifted left by 1.
 /// @param[in]  memAddr Register or memory address to read from.
 /// @param[in]  size    Memory address size (I2C_MEMADD_SIZE_8BIT or _16BIT).
@@ -73,26 +90,60 @@ void I2CInitModule( void ) {
 /// @param[in]  cb      Completion callback invoked from HAL ISR context.
 /// @return HAL_OK if queued, HAL_BUSY if bus is in use.
 /// @warning Do not call from ISR context.
-HAL_StatusTypeDef I2CReadAsync( uint16_t devAddr, uint16_t memAddr, uint16_t size, uint8_t* pData, uint16_t len,
-                                   I2CCallback cb ) {
-    if ( osSemaphoreAcquire( manager.mutex, 0 ) != osOK ) {
+HAL_StatusTypeDef I2CReadAsync( I2CRef i2c, uint16_t devAddr, uint16_t memAddr, uint16_t size,
+                                uint8_t* pData, uint16_t len, I2CCallback cb ) {
+    if ( i2c == NULL ) return HAL_ERROR;
+
+    if ( osSemaphoreAcquire( i2c->mutex, 0 ) != osOK ) {
         return HAL_BUSY;
     }
 
-    manager.isBusy = true;
-    manager.currentCallback = cb;
+    i2c->currentCallback = cb;
 
-    HAL_StatusTypeDef status = HAL_I2C_Mem_Read_IT( manager.hi2c, devAddr, memAddr, size, pData, len );
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Read_IT( i2c->hi2c, devAddr, memAddr, size, pData, len );
 
     if ( status != HAL_OK ) {
-        manager.isBusy = false;
-        osSemaphoreRelease( manager.mutex );
+        osSemaphoreRelease( i2c->mutex );
 
-        if ( status == HAL_BUSY && manager.flags != NULL ) {
-            osEventFlagsSet( manager.flags, BIT( FlagI2C1StatusLocked ) );
+        if ( status == HAL_BUSY && i2c->statusHandle != NULL ) {
+            osEventFlagsSet( i2c->statusHandle, BIT( FlagI2CStatusLocked ) );
         }
     }
 
+    return status;
+}
+
+/// @brief Perform a synchronous blocking memory read.
+///
+/// Acquires the bus semaphore for up to @p timeout milliseconds. On success,
+/// issues a HAL blocking read and releases the semaphore on return.
+/// Any HAL error is reflected in the local status flags and in FaultFlagsHandle.
+///
+/// @param[in]  i2c     Handle returned by I2COpen().
+/// @param[in]  devAddr 7-bit device address shifted left by 1.
+/// @param[in]  memAddr Register or memory address to read from.
+/// @param[in]  size    Memory address size (I2C_MEMADD_SIZE_8BIT or _16BIT).
+/// @param[out] pData   Destination buffer.
+/// @param[in]  len     Number of bytes to read.
+/// @param[in]  timeout Maximum wait in milliseconds for the semaphore and transfer.
+/// @return HAL_OK on success, HAL_BUSY if semaphore timed out, HAL_ERROR on bus fault.
+/// @warning Only call from task context, not ISR.
+HAL_StatusTypeDef I2CReadSync( I2CRef i2c, uint16_t devAddr, uint16_t memAddr, uint16_t size,
+                               uint8_t* pData, uint16_t len, uint32_t timeout ) {
+    if ( i2c == NULL ) return HAL_ERROR;
+
+    if ( osSemaphoreAcquire( i2c->mutex, timeout ) != osOK ) {
+        return HAL_BUSY;
+    }
+
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Read( i2c->hi2c, devAddr, memAddr, size, pData, len, timeout );
+
+    if ( status != HAL_OK && i2c->statusHandle != NULL ) {
+        osEventFlagsSet( i2c->statusHandle, BIT( FlagI2CStatusBusError ) );
+        osEventFlagsSet( FaultFlagsHandle, BIT( FlagI2CFault ) );
+    }
+
+    osSemaphoreRelease( i2c->mutex );
     return status;
 }
 
@@ -102,30 +153,31 @@ HAL_StatusTypeDef I2CReadAsync( uint16_t devAddr, uint16_t memAddr, uint16_t siz
 /// issues a HAL blocking write and releases the semaphore on return.
 /// Any HAL error is reflected in the local status flags and in FaultFlagsHandle.
 ///
-/// @param[in] devAddr  7-bit device address shifted left by 1.
-/// @param[in] memAddr  Register or memory address to write to.
-/// @param[in] size     Memory address size (I2C_MEMADD_SIZE_8BIT or _16BIT).
-/// @param[in] pData    Source buffer.
-/// @param[in] len      Number of bytes to write.
-/// @param[in] timeout  Maximum wait in milliseconds for the semaphore and transfer.
-/// @return HAL_OK on success, HAL_BUSY if the semaphore timed out, HAL_ERROR on bus fault.
+/// @param[in] i2c     Handle returned by I2COpen().
+/// @param[in] devAddr 7-bit device address shifted left by 1.
+/// @param[in] memAddr Register or memory address to write to.
+/// @param[in] size    Memory address size (I2C_MEMADD_SIZE_8BIT or _16BIT).
+/// @param[in] pData   Source buffer.
+/// @param[in] len     Number of bytes to write.
+/// @param[in] timeout Maximum wait in milliseconds for the semaphore and transfer.
+/// @return HAL_OK on success, HAL_BUSY if semaphore timed out, HAL_ERROR on bus fault.
 /// @warning Only call from task context, not ISR.
-HAL_StatusTypeDef I2CWriteSync( uint16_t devAddr, uint16_t memAddr, uint16_t size, uint8_t* pData, uint16_t len,
-                                 uint32_t timeout ) {
-    if ( osSemaphoreAcquire( manager.mutex, timeout ) != osOK ) {
+HAL_StatusTypeDef I2CWriteSync( I2CRef i2c, uint16_t devAddr, uint16_t memAddr, uint16_t size,
+                                uint8_t* pData, uint16_t len, uint32_t timeout ) {
+    if ( i2c == NULL ) return HAL_ERROR;
+
+    if ( osSemaphoreAcquire( i2c->mutex, timeout ) != osOK ) {
         return HAL_BUSY;
     }
 
-    HAL_StatusTypeDef status = HAL_I2C_Mem_Write( manager.hi2c, devAddr, memAddr, size, pData, len, timeout );
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Write( i2c->hi2c, devAddr, memAddr, size, pData, len, timeout );
 
-    if ( status != HAL_OK ) {
-        if ( manager.flags != NULL ) {
-            osEventFlagsSet( manager.flags, BIT( FlagI2C1StatusBusError ) );
-        }
+    if ( status != HAL_OK && i2c->statusHandle != NULL ) {
+        osEventFlagsSet( i2c->statusHandle, BIT( FlagI2CStatusBusError ) );
         osEventFlagsSet( FaultFlagsHandle, BIT( FlagI2CFault ) );
     }
 
-    osSemaphoreRelease( manager.mutex );
+    osSemaphoreRelease( i2c->mutex );
     return status;
 }
 
@@ -134,18 +186,19 @@ HAL_StatusTypeDef I2CWriteSync( uint16_t devAddr, uint16_t memAddr, uint16_t siz
 /// Clears transient error flags, releases the bus semaphore, and fires the
 /// caller's completion callback with success=true.
 ///
-/// @param[in] hi2c HAL handle (unused; singleton manager is used directly).
+/// @param[in] hi2c HAL handle; used to locate the correct instance.
 /// @warning Called from HAL ISR context. Must not call any FreeRTOS blocking API.
 static void TransferComplete( I2C_HandleTypeDef* hi2c ) {
-    UNUSED( hi2c );
-    I2CCallback cb = manager.currentCallback;
-    manager.isBusy = false;
+    I2CInstancePtr i2c = FindByHandle( hi2c );
+    if ( i2c == NULL ) return;
 
-    if ( manager.flags != NULL ) {
-        osEventFlagsClear( manager.flags, BIT( FlagI2C1StatusBusError ) | BIT( FlagI2C1StatusLocked ) );
+    I2CCallback cb = i2c->currentCallback;
+
+    if ( i2c->statusHandle != NULL ) {
+        osEventFlagsClear( i2c->statusHandle, BIT( FlagI2CStatusBusError ) | BIT( FlagI2CStatusLocked ) );
     }
 
-    osSemaphoreRelease( manager.mutex );
+    osSemaphoreRelease( i2c->mutex );
     if ( cb ) {
         cb( true );
     }
@@ -157,28 +210,27 @@ static void TransferComplete( I2C_HandleTypeDef* hi2c ) {
 /// raises FlagI2CFault in the global fault group, releases the semaphore,
 /// and fires the caller's completion callback with success=false.
 ///
-/// @param[in] hi2c HAL handle used to retrieve the HAL error code.
+/// @param[in] hi2c HAL handle; used to locate the instance and retrieve the error code.
 /// @warning Called from HAL ISR context. Must not call any FreeRTOS blocking API.
 static void TransferError( I2C_HandleTypeDef* hi2c ) {
+    I2CInstancePtr i2c = FindByHandle( hi2c );
+    if ( i2c == NULL ) return;
+
     uint32_t err = HAL_I2C_GetError( hi2c );
 
-    if ( manager.flags != NULL ) {
-        if ( err & HAL_I2C_ERROR_AF ) {
-            osEventFlagsSet( manager.flags, BIT( FlagI2C1StatusBusError ) );
-        }
-        if ( err & HAL_I2C_ERROR_BERR ) {
-            osEventFlagsSet( manager.flags, BIT( FlagI2C1StatusBusError ) );
+    if ( i2c->statusHandle != NULL ) {
+        if ( err & ( HAL_I2C_ERROR_AF | HAL_I2C_ERROR_BERR ) ) {
+            osEventFlagsSet( i2c->statusHandle, BIT( FlagI2CStatusBusError ) );
         }
         if ( err & HAL_I2C_ERROR_ARLO ) {
-            osEventFlagsSet( manager.flags, BIT( FlagI2C1StatusArbitrationLost ) );
+            osEventFlagsSet( i2c->statusHandle, BIT( FlagI2CStatusArbitrationLost ) );
         }
     }
 
     osEventFlagsSet( FaultFlagsHandle, BIT( FlagI2CFault ) );
 
-    I2CCallback cb = manager.currentCallback;
-    manager.isBusy = false;
-    osSemaphoreRelease( manager.mutex );
+    I2CCallback cb = i2c->currentCallback;
+    osSemaphoreRelease( i2c->mutex );
 
     if ( cb ) {
         cb( false );

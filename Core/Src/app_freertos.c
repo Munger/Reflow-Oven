@@ -202,26 +202,6 @@ osEventFlagsId_t TriacHTopStatusFlagsHandle;
 const osEventFlagsAttr_t TriacHTopStatusFlags_attributes = {
   .name = "TriacHTopStatusFlags"
 };
-/* Definitions for TriacHRearStatusFlags */
-osEventFlagsId_t TriacHRearStatusFlagsHandle;
-const osEventFlagsAttr_t TriacHRearStatusFlags_attributes = {
-  .name = "TriacHRearStatusFlags"
-};
-/* Definitions for TriacHBotStatusFlags */
-osEventFlagsId_t TriacHBotStatusFlagsHandle;
-const osEventFlagsAttr_t TriacHBotStatusFlags_attributes = {
-  .name = "TriacHBotStatusFlags"
-};
-/* Definitions for TriacFanStatusFlags */
-osEventFlagsId_t TriacFanStatusFlagsHandle;
-const osEventFlagsAttr_t TriacFanStatusFlags_attributes = {
-  .name = "TriacFanStatusFlags"
-};
-/* Definitions for TriacLightStatusFlags */
-osEventFlagsId_t TriacLightStatusFlagsHandle;
-const osEventFlagsAttr_t TriacLightStatusFlags_attributes = {
-  .name = "TriacLightStatusFlags"
-};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -359,18 +339,6 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of TriacHTopStatusFlags */
   TriacHTopStatusFlagsHandle = osEventFlagsNew(&TriacHTopStatusFlags_attributes);
-
-  /* creation of TriacHRearStatusFlags */
-  TriacHRearStatusFlagsHandle = osEventFlagsNew(&TriacHRearStatusFlags_attributes);
-
-  /* creation of TriacHBotStatusFlags */
-  TriacHBotStatusFlagsHandle = osEventFlagsNew(&TriacHBotStatusFlags_attributes);
-
-  /* creation of TriacFanStatusFlags */
-  TriacFanStatusFlagsHandle = osEventFlagsNew(&TriacFanStatusFlags_attributes);
-
-  /* creation of TriacLightStatusFlags */
-  TriacLightStatusFlagsHandle = osEventFlagsNew(&TriacLightStatusFlags_attributes);
 
   /* USER CODE BEGIN RTOS_EVENTS */
     /* add events, ... */

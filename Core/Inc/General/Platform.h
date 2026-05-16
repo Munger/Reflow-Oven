@@ -15,5 +15,6 @@
 #define PLATFORM_H
 
 #include "stm32g0xx_hal.h"
+#include "stm32g0xx_ll_adc.h"
 
 #endif // PLATFORM_H

@@ -52,6 +52,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/Drivers/SPIManager.c
     Core/Src/Drivers/Buzzer.c
     Core/Src/Drivers/DCFan.c
+    Core/Src/Drivers/Flash.c
     Core/Src/Drivers/MCU.c
     Core/Src/Drivers/PowerManager.c
     Core/Src/Drivers/RotaryEncoder.c

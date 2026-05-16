@@ -26,9 +26,8 @@
 
 /// @brief Number of calibrated speed steps in the profile, excluding slot 0 (OFF).
 ///
-/// Slots 1 through `AC_FAN_NUM_STEPS` correspond to 10 %..100 % of
-/// `motorMaxRPM` in equal increments.
-#define AC_FAN_NUM_STEPS 10
+/// Slots 1 through kAcFanNumSteps correspond to 10%..100% of motorMaxRPM in equal increments.
+enum { kAcFanNumSteps = 10 };
 
 /// @brief Internal TRIAC drive parameter set.
 ///
@@ -50,9 +49,9 @@ typedef struct {
 /// @brief Full calibration output produced by `ACFanRunCalibration()`.
 ///
 /// Slot 0 is always motor-off (burstOn = 0).
-/// Slots 1 through `AC_FAN_NUM_STEPS` correspond to 10 %..100 % of `motorMaxRPM`.
+/// Slots 1 through kAcFanNumSteps correspond to 10%..100% of motorMaxRPM.
 typedef struct {
-    ACFanProfileSlot slots[ AC_FAN_NUM_STEPS + 1 ]; ///< Calibrated slot array.
+    ACFanProfileSlot slots[ kAcFanNumSteps + 1 ]; ///< Calibrated slot array.
     Rpm              motorMaxRPM;                    ///< Unloaded maximum RPM measured at calibration start.
 } ACFanProfileMap, *ACFanProfileMapPtr;
 
@@ -65,7 +64,7 @@ void ACFanInitCalibration( void );
 /// @brief Run the full calibration sequence and populate @p mapOut.
 ///
 /// Executes a two-phase grid search (coarse + fine) for each of the
-/// `AC_FAN_NUM_STEPS` speed targets, measuring RPM and stress at each
+/// kAcFanNumSteps speed targets, measuring RPM and stress at each
 /// candidate TRIAC drive point. The result is written into @p mapOut.
 ///
 /// @param[out] mapOut  Caller-allocated profile map to populate.

@@ -21,43 +21,44 @@
 #include "main.h"
 
 /// @brief EMC2101 I2C device address (7-bit, shifted left by 1 for HAL).
-#define EMC2101_ADDR              ( 0x4C << 1 )
+static const uint8_t kEmc2101Addr = 0x4C << 1;
 
-/// @name EMC2101 register addresses
-/// @{
-#define REG_INT_TEMP              0x00  ///< Internal die temperature (signed 8-bit, degrees C)
-#define REG_EXT_TEMP_MSB          0x01  ///< External remote temperature MSB
-#define REG_FAN_SETTING           0x19  ///< PWM duty cycle register (0=off, 255=full)
-#define REG_FAN_CONFIG            0x20  ///< Fan configuration register
-#define REG_TACH_LSB              0x46  ///< Tachometer period LSB (16-bit, combined with 0x47)
-/// @}
+// ============================================================================
+// EMC2101 register addresses
+// ============================================================================
 
-/// @brief Constant used to convert tachometer period (counts) to RPM.
-/// Formula: RPM = TACH_CONVERSION_CONST / tach_reading
-#define TACH_CONVERSION_CONST     540000
+static const uint8_t kRegIntTemp    = 0x00U; ///< Internal die temperature (signed 8-bit, degrees C)
+static const uint8_t kRegExtTempMsb = 0x01U; ///< External remote temperature MSB
+static const uint8_t kRegFanSetting = 0x19U; ///< PWM duty cycle register (0=off, 255=full)
+static const uint8_t kRegFanConfig  = 0x20U; ///< Fan configuration register
+static const uint8_t kRegTachLsb    = 0x46U; ///< Tachometer period LSB (16-bit, combined with 0x47)
+
+/// @brief RPM = kTachConversionConst / tach_reading
+static const uint32_t kTachConversionConst = 540000U;
 
 /// @brief Number of evenly-spaced calibration steps used by DCFanCalibrate().
-#define CAL_STEPS                 10
+enum { kCalSteps = 10 };
 
-/// @brief RPM tolerance as a percentage of the lookup table value; readings below
-/// (expected * PERFORMANCE_TOLERANCE_PCT / 100) trigger FlagDCFanStatusUnderSpeed.
-#define PERFORMANCE_TOLERANCE_PCT 80
+/// @brief RPM tolerance as a percentage; readings below (expected * kPerformanceTolerancePct / 100)
+/// trigger FlagDCFanStatusUnderSpeed.
+static const uint8_t kPerformanceTolerancePct = 80U;
 
 /// @brief Expected RPM at each calibration step (10% duty increments).
-static const Rpm FanPerformanceTable[ CAL_STEPS ] = { 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000 };
+static const Rpm FanPerformanceTable[ kCalSteps ] = { 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000 };
 
 #if CALIBRATION
 /// @brief Stores measured RPM results for each calibration step (conditional compile).
-static Rpm CalibrationResults[ CAL_STEPS ];
+static Rpm CalibrationResults[ kCalSteps ];
 #endif
 
 /// @brief Internal representation of a DC fan controller instance.
 typedef struct DCFanController {
-    DCFanID     id;            ///< Fan channel identifier
+    DCFanID     id;             ///< Fan channel identifier
+    I2CRef      i2c;            ///< I2C bus handle acquired at DCFanOpen()
     Permille    requestedLevel; ///< Last speed requested via DCFanSetSpeed()
-    Rpm         currentRpm;    ///< Most recently measured tachometer RPM
-    Temperature internalTemp;  ///< EMC2101 die temperature in milli-degrees C
-    Temperature externalTemp;  ///< EMC2101 remote thermistor temperature in milli-degrees C
+    Rpm         currentRpm;     ///< Most recently measured tachometer RPM
+    Temperature internalTemp;   ///< EMC2101 die temperature in milli-degrees C
+    Temperature externalTemp;   ///< EMC2101 remote thermistor temperature in milli-degrees C
 } DCFanController, *DCFanControllerPtr;
 
 /// @brief States of the asynchronous I2C polling state machine.
@@ -69,19 +70,14 @@ typedef enum {
     FanStateProcessing       ///< All reads complete; processing results and updating flags
 } FanIOState;
 
-/// @brief Shared async I/O context written by FanI2CCallback() from ISR.
+/// @brief Shared async I/O context — state is task-only; buffer is ISR-written via DMA callback.
 static volatile struct {
-    FanIOState state;       ///< Current state machine position
-    uint8_t    buffer[ 2 ]; ///< Raw bytes returned by the last I2C read
-    bool       done;        ///< Set true by FanI2CCallback on success
-    bool       error;       ///< Set true by FanI2CCallback on failure
+    FanIOState state;       ///< Current state machine position (task context only)
+    uint8_t    buffer[ 2 ]; ///< Raw bytes returned by the last I2C read (written from ISR)
 } ioContext;
 
 /// @brief Singleton fan controller instance for the board cooling fan.
 static DCFanController boardFan;
-
-/// @brief Flag set by DCFanSetSpeed() and cleared by DCFanProcess() after applying the new duty.
-static volatile bool pendingSpeedSet = false;
 
 /// @brief Private event flag group for board fan status.
 /// @note Replaces the former public BoardFanStatusFlagsHandle extern.
@@ -89,39 +85,41 @@ static osEventFlagsId_t boardFanStatus;
 
 static void FanI2CCallback( bool success );
 
-/// @brief Initialise the fan controller, create status flags, and configure the EMC2101.
-///
-/// Checks for mains power presence before attempting I2C communication — the fan
-/// is only powered when mains is detected. Sets FlagDCFanStatusReady and signals
-/// DeviceStatusFlagsHandle on successful configuration.
+/// @brief Allocate the status event flag group. Does not access I2C hardware.
 void DCFanInitModule( void ) {
     boardFanStatus = osEventFlagsNew( NULL );
-    boardFan.id = BoardCoolingFan;
-
+    boardFan.id    = BoardCoolingFan;
     osEventFlagsClear( boardFanStatus, 0xFFFFFF );
-
-    // Check for mains power (Active Low)
-    if ( HAL_GPIO_ReadPin( MAINS_PWR_N_GPIO_Port, MAINS_PWR_N_Pin ) == GPIO_PIN_SET ) {
-        return;
-    }
-
-    uint8_t           config = 0x00;
-    HAL_StatusTypeDef status = I2CWriteSync( EMC2101_ADDR, REG_FAN_CONFIG, 1, &config, 1, 100 );
-
-    if ( status == HAL_OK ) {
-        osEventFlagsSet( boardFanStatus, BIT( FlagDCFanStatusReady ) );
-        osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagBoardFanReady ) );
-    }
 }
 
-/// @brief Return a reference to the requested fan instance.
+/// @brief Open a handle to the specified fan channel and configure the EMC2101.
+///
+/// On first call for a given ID: stores @p i2c, checks mains power, writes the
+/// fan configuration register, and signals DeviceStatusFlagsHandle on success.
+/// Subsequent calls with the same ID return the existing instance without re-configuring.
+///
 /// @param[in] fanID Fan channel identifier.
+/// @param[in] i2c   I2C bus handle returned by I2COpen().
 /// @return Pointer to the DCFanController, or NULL if the ID is invalid.
-DCFanRef DCFanOpen( DCFanID fanID ) {
-    if ( fanID == BoardCoolingFan ) {
-        return &boardFan;
+DCFanRef DCFanOpen( DCFanID fanID, I2CRef i2c ) {
+    if ( fanID != BoardCoolingFan ) return NULL;
+
+    if ( boardFan.i2c == NULL ) {
+        boardFan.i2c = i2c;
+
+        // Fan is only powered when mains is detected (active-low signal)
+        if ( HAL_GPIO_ReadPin( MAINS_PWR_N_GPIO_Port, MAINS_PWR_N_Pin ) == GPIO_PIN_SET ) {
+            return &boardFan;
+        }
+
+        uint8_t config = 0x00;
+        if ( I2CWriteSync( i2c, kEmc2101Addr, kRegFanConfig, I2C_MEMADD_SIZE_8BIT, &config, 1, 100 ) == HAL_OK ) {
+            osEventFlagsSet( boardFanStatus, BIT( FlagDCFanStatusReady ) );
+            osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagBoardFanReady ) );
+        }
     }
-    return NULL;
+
+    return &boardFan;
 }
 
 /// @brief Queue a fan speed update; the I2C write is applied by DCFanProcess() on the next tick.
@@ -144,8 +142,8 @@ void DCFanSetSpeed( DCFanRef fan, Permille speed ) {
 
     taskENTER_CRITICAL();
     fan->requestedLevel = newLevel;
-    pendingSpeedSet     = true;
     taskEXIT_CRITICAL();
+    osEventFlagsSet( boardFanStatus, BIT( FlagDCFanSpeedPending ) );
 }
 
 /// @brief Drive the I2C state machine, apply pending speed commands, and update status flags.
@@ -160,19 +158,18 @@ void DCFanProcess( void ) {
     uint32_t flags = osEventFlagsGet( boardFanStatus );
     if ( !( flags & BIT( FlagDCFanStatusReady ) ) ) return;
 
-    if ( pendingSpeedSet ) {
-        pendingSpeedSet = false;
+    if ( flags & BIT( FlagDCFanSpeedPending ) ) {
+        osEventFlagsClear( boardFanStatus, BIT( FlagDCFanSpeedPending ) );
         uint8_t duty = (uint8_t)( ( (uint32_t)boardFan.requestedLevel * 255 ) / 1000 );
-        if ( I2CWriteSync( EMC2101_ADDR, REG_FAN_SETTING, 1, &duty, 1, 50 ) != HAL_OK ) {
+        if ( I2CWriteSync( boardFan.i2c, kEmc2101Addr, kRegFanSetting, I2C_MEMADD_SIZE_8BIT, &duty, 1, 50 ) != HAL_OK ) {
             osEventFlagsSet( boardFanStatus, BIT( FlagDCFanStatusHardwareFault ) );
             osEventFlagsSet( FaultFlagsHandle, BIT( FlagBoardFanFault ) );
         }
     }
 
-    if ( ioContext.error ) {
+    if ( flags & BIT( FlagDCFanIOError ) ) {
         osEventFlagsSet( boardFanStatus, BIT( FlagDCFanStatusHardwareFault ) );
-        ioContext.error = false;
-        ioContext.done = false;
+        osEventFlagsClear( boardFanStatus, BIT( FlagDCFanIOError ) | BIT( FlagDCFanIODone ) );
         ioContext.state = FanStateIdle;
     }
 
@@ -180,41 +177,41 @@ void DCFanProcess( void ) {
 
     switch ( ioContext.state ) {
         case FanStateIdle:
-            ioContext.done = false;
-            ioContext.error = false;
+            osEventFlagsClear( boardFanStatus, BIT( FlagDCFanIODone ) | BIT( FlagDCFanIOError ) );
             ioContext.state = FanStateReadIntTemp;
-            if ( I2CReadAsync( EMC2101_ADDR, REG_INT_TEMP, 1, pBuf, 1, FanI2CCallback ) != HAL_OK ) {
+            if ( I2CReadAsync( boardFan.i2c, kEmc2101Addr, kRegIntTemp, I2C_MEMADD_SIZE_8BIT, pBuf, 1, FanI2CCallback ) != HAL_OK ) {
                 ioContext.state = FanStateIdle;
             }
             break;
 
         case FanStateReadIntTemp:
-            if ( ioContext.done ) {
+            if ( flags & BIT( FlagDCFanIODone ) ) {
                 boardFan.internalTemp = (Temperature)( (int8_t)ioContext.buffer[ 0 ] ) * 1000;
-                ioContext.done = false;
+                osEventFlagsClear( boardFanStatus, BIT( FlagDCFanIODone ) );
                 ioContext.state = FanStateReadExtTemp;
-                if ( I2CReadAsync( EMC2101_ADDR, REG_EXT_TEMP_MSB, 1, pBuf, 1, FanI2CCallback ) != HAL_OK ) {
+                if ( I2CReadAsync( boardFan.i2c, kEmc2101Addr, kRegExtTempMsb, I2C_MEMADD_SIZE_8BIT, pBuf, 1, FanI2CCallback ) != HAL_OK ) {
                     ioContext.state = FanStateIdle;
                 }
             }
             break;
 
         case FanStateReadExtTemp:
-            if ( ioContext.done ) {
+            if ( flags & BIT( FlagDCFanIODone ) ) {
                 boardFan.externalTemp = (Temperature)( (int8_t)ioContext.buffer[ 0 ] ) * 1000;
-                ioContext.done = false;
+                osEventFlagsClear( boardFanStatus, BIT( FlagDCFanIODone ) );
                 ioContext.state = FanStateReadTach;
-                if ( I2CReadAsync( EMC2101_ADDR, REG_TACH_LSB, 1, pBuf, 2, FanI2CCallback ) != HAL_OK ) {
+                if ( I2CReadAsync( boardFan.i2c, kEmc2101Addr, kRegTachLsb, I2C_MEMADD_SIZE_8BIT, pBuf, 2, FanI2CCallback ) != HAL_OK ) {
                     ioContext.state = FanStateIdle;
                 }
             }
             break;
 
         case FanStateReadTach:
-            if ( ioContext.done ) {
+            if ( flags & BIT( FlagDCFanIODone ) ) {
                 uint16_t reading = (uint16_t)( ioContext.buffer[ 1 ] << 8 | ioContext.buffer[ 0 ] );
                 boardFan.currentRpm =
-                    ( reading == 0xFFFF || reading == 0 ) ? 0 : (Rpm)( TACH_CONVERSION_CONST / reading );
+                    ( reading == 0xFFFF || reading == 0 ) ? 0 : (Rpm)( kTachConversionConst / reading );
+                osEventFlagsClear( boardFanStatus, BIT( FlagDCFanIODone ) );
                 ioContext.state = FanStateProcessing;
             }
             break;
@@ -247,9 +244,9 @@ void DCFanProcess( void ) {
 
                 // Compare against performance table at the nearest duty step
                 uint8_t idx = (uint8_t)( boardFan.requestedLevel / 100 );
-                if ( idx > 0 && idx <= CAL_STEPS ) {
+                if ( idx > 0 && idx <= kCalSteps ) {
                     Rpm      expected = FanPerformanceTable[ idx - 1 ];
-                    uint32_t floor = ( (uint32_t)expected * PERFORMANCE_TOLERANCE_PCT ) / 100;
+                    uint32_t floor = ( (uint32_t)expected * kPerformanceTolerancePct ) / 100;
                     if ( boardFan.currentRpm < floor ) {
                         set |= BIT( FlagDCFanStatusUnderSpeed );
                     } else {
@@ -275,19 +272,12 @@ void DCFanProcess( void ) {
     }
 }
 
-/// @brief I2CManager callback invoked on completion or failure of an async read.
-///
-/// Sets done or error in ioContext so that DCFanProcess() can advance the state machine
-/// on the next task tick.
+/// @brief I2CManager callback — sets FlagDCFanIODone or FlagDCFanIOError in boardFanStatus.
 ///
 /// @param[in] success true if the read completed successfully, false on error.
-/// @warning Called from HAL ISR context. Must not call any FreeRTOS blocking API.
+/// @warning Called from HAL ISR context. osEventFlagsSet() only — no blocking API.
 static void FanI2CCallback( bool success ) {
-    if ( success ) {
-        ioContext.done = true;
-    } else {
-        ioContext.error = true;
-    }
+    osEventFlagsSet( boardFanStatus, BIT( success ? FlagDCFanIODone : FlagDCFanIOError ) );
 }
 
 /// @brief Return the most recently measured fan speed.

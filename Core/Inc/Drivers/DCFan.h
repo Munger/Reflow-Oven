@@ -17,6 +17,7 @@
 
 #include "Types.h"
 #include "SystemStatusFlags.h"
+#include "I2CManager.h"
 
 /// @brief Logical identifiers for DC fan channels managed by this driver.
 typedef enum {
@@ -33,6 +34,9 @@ typedef enum {
     FlagDCFanStatusUnderSpeed,       ///< Measured RPM significantly below requested target
     FlagDCFanStatusOverTemp,         ///< EMC2101 internal or external temperature over limit
     FlagDCFanStatusHardwareFault,    ///< I2C communication failure with the EMC2101
+    FlagDCFanSpeedPending,           ///< Speed command queued; not yet written to hardware.
+    FlagDCFanIODone,                 ///< Most recent async I2C read completed successfully.
+    FlagDCFanIOError,                ///< Most recent async I2C read failed.
 
     DCFanFlagsCount
 } DCFanStatusBit;
@@ -42,13 +46,19 @@ _Static_assert( DCFanFlagsCount <= 24, "BoardFanStatusFlags out of bounds" );
 /// @brief Opaque handle to a DC fan controller instance.
 typedef struct DCFanController* DCFanRef;
 
-/// @brief Initialise the fan controller and configure the EMC2101 over I2C.
+/// @brief Allocate per-instance resources. Does not access I2C hardware.
 void               DCFanInitModule( void );
 
-/// @brief Open a handle to the specified fan channel.
+/// @brief Open a handle to the specified fan channel and configure the EMC2101.
+///
+/// On first call for a given ID: stores @p i2c, checks mains presence, writes
+/// the fan configuration register, and signals DeviceStatusFlagsHandle on success.
+/// Subsequent calls with the same ID return the existing instance without re-configuring.
+///
 /// @param[in] fanID Fan channel identifier (currently only BoardCoolingFan).
+/// @param[in] i2c   I2C bus handle returned by I2COpen().
 /// @return Handle to the fan instance, or NULL if the ID is invalid.
-DCFanRef           DCFanOpen( DCFanID fanID );
+DCFanRef           DCFanOpen( DCFanID fanID, I2CRef i2c );
 
 /// @brief Queue a fan speed request; the I2C write is applied by DCFanProcess() on the next tick.
 /// @param[in] fan   Handle returned by DCFanOpen().

@@ -37,9 +37,9 @@
 ///
 /// These bits track kernel-level lifecycle events that gate task startup.
 typedef enum {
-    FlagSystemInitialised    = 0, ///< All drivers are ready; tasks may proceed.
-    FlagInterruptsEnabled    = 1, ///< GPIO edge interrupts have been unmasked.
-    FlagSupervisorServiceRequest = 2, ///< ManagerTask: a supervisor action is requested.
+    FlagSystemInitialised = 0,    ///< All drivers are ready; tasks may proceed.
+    FlagInterruptsEnabled,        ///< GPIO edge interrupts have been unmasked.
+    FlagSupervisorServiceRequest, ///< ManagerTask: a supervisor action is requested.
 
     SystemFlagsCount              ///< Number of flags — must stay <= 24.
 } SystemFlagBit;
@@ -50,38 +50,39 @@ typedef enum {
 /// configured and its event flag group is allocated. ManagerTask waits for
 /// `DEVICE_ALL_READY` (all bits set) before enabling interrupts.
 typedef enum {
-    FlagMCUReady               = 0,  ///< MCU peripheral init complete.
-    FlagUSBPDReady             = 1,  ///< USB-PD controller init complete.
-    FlagUSBPDContractReady     = 2,  ///< USB-PD power contract negotiated.
+    FlagMCUReady = 0,            ///< MCU peripheral init complete.
+    FlagUSBPDReady,              ///< USB-PD controller init complete.
+    FlagUSBPDContractReady,      ///< USB-PD power contract negotiated.
 
-    FlagThermocouple1Ready     = 3,  ///< MAX31856 channel 1 ready.
-    FlagThermocouple2Ready     = 4,  ///< MAX31856 channel 2 ready.
+    FlagThermocouple1Ready,      ///< MAX31856 channel 1 ready.
+    FlagThermocouple2Ready,      ///< MAX31856 channel 2 ready.
 
-    FlagThermistorCJT1Ready    = 5,  ///< Cold-junction thermistor 1 (MCP3221) ready.
-    FlagThermistorCJT2Ready    = 6,  ///< Cold-junction thermistor 2 (MCP3221) ready.
-    FlagThermistorOvenReady    = 7,  ///< Oven cavity thermistor (MCP3221) ready.
-    FlagThermistorHeatsinkReady = 8, ///< Heatsink thermistor (EMC2101 I2C) ready.
+    FlagThermistorCJT1Ready,     ///< Cold-junction thermistor 1 (MCP3221) ready.
+    FlagThermistorCJT2Ready,     ///< Cold-junction thermistor 2 (MCP3221) ready.
+    FlagThermistorOvenReady,     ///< Oven cavity thermistor (MCP3221) ready.
+    FlagThermistorHeatsinkReady, ///< Heatsink thermistor (EMC2101 I2C) ready.
 
-    FlagPowerManagerReady      = 9,  ///< Power manager init complete.
-    FlagBuzzerReady            = 10, ///< Buzzer driver init complete.
+    FlagPowerManagerReady,       ///< Power manager init complete.
+    FlagBuzzerReady,             ///< Buzzer driver init complete.
 
-    FlagOvenFanReady           = 11, ///< Oven fan (AC) driver ready.
-    FlagOvenFanSpinning        = 12, ///< Oven fan rotor is currently rotating.
-    FlagBoardFanReady          = 13, ///< Board cooling fan (DC, EMC2101) ready.
-    FlagTriacReady             = 14, ///< TRIAC phase-angle driver ready.
+    FlagOvenFanReady,            ///< Oven fan (AC) driver ready.
+    FlagOvenFanSpinning,         ///< Oven fan rotor is currently rotating.
+    FlagBoardFanReady,           ///< Board cooling fan (DC, EMC2101) ready.
+    FlagTriacReady,              ///< TRIAC phase-angle driver ready.
+    FlagFlashReady,              ///< External NOR flash init and verified.
 
-    DeviceFlagsCount                 ///< Number of flags — must stay <= 24.
+    DeviceFlagsCount             ///< Number of flags — must stay <= 24.
 } DeviceFlagsBit;
 
 /// @brief Reflow profile execution phase flags, stored in ReflowStatusFlagsHandle.
 typedef enum {
-    FlagReflowInProgress = 0, ///< A reflow cycle is actively running.
-    FlagReflowHeating    = 1, ///< Oven is in the preheat/ramp-up phase.
-    FlagReflowSoaking    = 2, ///< Oven is in the thermal soak phase.
-    FlagReflowCooling    = 3, ///< Oven is in the forced-cool phase.
-    FlagReflowDone       = 4, ///< Reflow cycle completed successfully.
+    FlagReflowInProgress = 0,   ///< A reflow cycle is actively running.
+    FlagReflowHeating,          ///< Oven is in the preheat/ramp-up phase.
+    FlagReflowSoaking,          ///< Oven is in the thermal soak phase.
+    FlagReflowCooling,          ///< Oven is in the forced-cool phase.
+    FlagReflowDone,             ///< Reflow cycle completed successfully.
 
-    ReflowFlagsCount          ///< Number of flags — must stay <= 24.
+    ReflowFlagsCount            ///< Number of flags — must stay <= 24.
 } ReflowStatusBit;
 
 /// @brief Active fault flags, stored in FaultFlagsHandle.
@@ -89,25 +90,26 @@ typedef enum {
 /// Any bit set here indicates an active fault condition. ManagerTask blocks on
 /// `FAULT_ANY` and is expected to enforce a safe state when a fault occurs.
 typedef enum {
-    FlagESTOP                  = 0,  ///< Emergency stop was triggered.
-    FlagMCUFault               = 1,  ///< MCU peripheral or watchdog fault.
-    FlagPowerManagerFault      = 2,  ///< Power supply out of range.
-    FlagUSBPDFault             = 3,  ///< USB-PD negotiation or hardware fault.
-    FlagThermocouple1Fault     = 4,  ///< Thermocouple 1 open-circuit or CRC error.
-    FlagThermocouple2Fault     = 5,  ///< Thermocouple 2 open-circuit or CRC error.
-    FlagThermistorCJT1Fault    = 6,  ///< Cold-junction thermistor 1 read failure.
-    FlagThermistorCJT2Fault    = 7,  ///< Cold-junction thermistor 2 read failure.
-    FlagThermistorOvenFault    = 8,  ///< Oven cavity thermistor read failure.
-    FlagThermistorHeatsinkFault = 9, ///< Heatsink thermistor read failure.
-    FlagOvenFanFault           = 10, ///< Oven fan stall or speed error.
-    FlagBoardFanFault          = 11, ///< Board fan stall or speed error.
-    FlagBuzzerFault            = 12, ///< Buzzer hardware fault.
-    FlagReflowFault            = 13, ///< Reflow profile logic error.
-    FlagI2CFault               = 14, ///< I2C bus error or timeout.
-    FlagSPIFault               = 15, ///< SPI bus error or timeout.
-    FlagTriacFault             = 16, ///< TRIAC gate or ZCD fault.
+    FlagESTOP = 0,               ///< Emergency stop was triggered.
+    FlagMCUFault,                ///< MCU peripheral or watchdog fault.
+    FlagPowerManagerFault,       ///< Power supply out of range.
+    FlagUSBPDFault,              ///< USB-PD negotiation or hardware fault.
+    FlagThermocouple1Fault,      ///< Thermocouple 1 open-circuit or CRC error.
+    FlagThermocouple2Fault,      ///< Thermocouple 2 open-circuit or CRC error.
+    FlagThermistorCJT1Fault,     ///< Cold-junction thermistor 1 read failure.
+    FlagThermistorCJT2Fault,     ///< Cold-junction thermistor 2 read failure.
+    FlagThermistorOvenFault,     ///< Oven cavity thermistor read failure.
+    FlagThermistorHeatsinkFault, ///< Heatsink thermistor read failure.
+    FlagOvenFanFault,            ///< Oven fan stall or speed error.
+    FlagBoardFanFault,           ///< Board fan stall or speed error.
+    FlagBuzzerFault,             ///< Buzzer hardware fault.
+    FlagReflowFault,             ///< Reflow profile logic error.
+    FlagI2CFault,                ///< I2C bus error or timeout.
+    FlagSPIFault,                ///< SPI bus error or timeout.
+    FlagTriacFault,              ///< TRIAC gate or ZCD fault.
+    FlagFlashFault,              ///< NOR flash SPI error or JEDEC ID mismatch.
 
-    FaultFlagsCount                  ///< Number of flags — must stay <= 24.
+    FaultFlagsCount              ///< Number of flags — must stay <= 24.
 } FaultFlagsBit;
 
 /// @brief Bitmask of all device-ready bits that must be set before the system initialises.
@@ -129,7 +131,8 @@ typedef enum {
     BIT( FlagBuzzerReady )             | \
     BIT( FlagOvenFanReady )            | \
     BIT( FlagBoardFanReady )           | \
-    BIT( FlagTriacReady )                \
+    BIT( FlagTriacReady )              | \
+    BIT( FlagFlashReady )               \
 )
 
 /// @brief Bitmask of all fault flags. ManagerTask uses this to wait on any fault.
@@ -150,7 +153,8 @@ typedef enum {
     BIT( FlagReflowFault )             | \
     BIT( FlagI2CFault )                | \
     BIT( FlagSPIFault )                | \
-    BIT( FlagTriacFault )                \
+    BIT( FlagTriacFault )              | \
+    BIT( FlagFlashFault )               \
 )
 
 /// @brief System milestone event flag group. Created by app_freertos.c at startup.

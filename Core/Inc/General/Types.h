@@ -70,4 +70,12 @@ typedef uint32_t Power;
 /// Used by the AC fan tuning engine to rank candidate drive parameters.
 typedef uint32_t StressFactor;
 
+/// @brief Single linearisation table entry for an NTC thermistor (milli-degrees C).
+typedef Temperature NTCEntry;
+
+/// @brief Pointer to the first entry of an NTC thermistor lookup table.
+/// Tables have 33 entries covering 32 equal intervals of 128 ADC counts each
+/// (12-bit ADC range: 4096 / 32 = 128 counts per step).
+typedef const NTCEntry* NTCEntryPtr;
+
 #endif // TYPES_H

@@ -55,6 +55,7 @@ typedef enum {
 /// @brief Internal per-channel thermocouple state.
 typedef struct Thermocouple {
     ThermocoupleID     id;            ///< Channel identifier
+    SPIRef             spi;           ///< SPI bus handle acquired at TCOpen()
     osEventFlagsId_t   statusHandle;  ///< Private event flag group for this instance
     GPIO_TypeDef*      csPort;        ///< SPI chip-select GPIO port
     uint16_t           csPin;         ///< SPI chip-select GPIO pin
@@ -64,8 +65,6 @@ typedef struct Thermocouple {
     ThermistorRef      externalCjt;   ///< Resolved handle to the CJT thermistor
     Temperature        lastTemp;      ///< Most recently decoded thermocouple temperature
     uint8_t            rxBuf[ 4 ];    ///< Scratch buffer for SPI register reads
-    volatile bool      pendingSample; ///< Set by TCRequestSample(); cleared by TCProcess()
-    volatile bool      faultPending;  ///< Set by TCHandleFaultInterrupt(); cleared by TCProcess()
 } Thermocouple, *ThermocouplePtr;
 
 /// @brief Two thermocouple instances, indexed by ThermocoupleID.
@@ -74,12 +73,12 @@ static Thermocouple instances[ 2 ];
 static void TCWriteReg( ThermocoupleRef tc, MaxRegister reg, uint8_t val );
 static void TCReadRegs( ThermocoupleRef tc, MaxRegister reg, uint8_t* buffer, uint8_t len );
 
-/// @brief Initialise both thermocouple instances and configure the MAX31856 hardware.
+/// @brief Allocate per-instance resources and assign static GPIO/pin mappings.
 ///
-/// Creates per-instance private event flag groups (osEventFlagsNew).
-/// Assigns GPIO and pin mapping from CubeMX-generated defines.
-/// Configures Type-K mode, auto-conversion, and 100 ms open-circuit detection.
-/// Signals DeviceStatusFlagsHandle for each channel.
+/// Creates per-instance private event flag groups (osEventFlagsNew) and records
+/// the GPIO/pin configuration from CubeMX-generated defines. Does NOT access SPI
+/// hardware — that happens in TCOpen() once a bus reference is available. Safe to
+/// call before SPIInitModule() runs.
 void TCInitModule( void ) {
     memset( instances, 0, sizeof( instances ) );
 
@@ -98,33 +97,40 @@ void TCInitModule( void ) {
     instances[ Thermocouple2 ].drdyPin       = THERM2_DRDY_Pin;
     instances[ Thermocouple2 ].faultPin      = THERM2_FAULT_Pin;
     instances[ Thermocouple2 ].externalCjtId = ThermistorCJT2;
-
-    for ( uint8_t i = 0; i < 2; i++ ) {
-        TCWriteReg( &instances[ i ], RegCr1, Cr1TypeK );
-        TCWriteReg( &instances[ i ], RegCr0, (uint8_t)Cr0ConvModeAuto | (uint8_t)Cr0OcFault100Ms | (uint8_t)Cr0CjDisable );
-
-        osEventFlagsSet( DeviceStatusFlagsHandle, ( instances[ i ].id == Thermocouple1 ) ?
-                         BIT( FlagThermocouple1Ready ) : BIT( FlagThermocouple2Ready ) );
-    }
 }
 
-/// @brief Open a handle to a thermocouple instance and resolve its CJT thermistor reference.
+/// @brief Open a handle to a thermocouple instance and configure the MAX31856 hardware.
+///
+/// On first call for a given ID: stores @p spi, writes CR0/CR1 to the MAX31856,
+/// resolves the CJT thermistor reference, and signals DeviceStatusFlagsHandle.
+/// Subsequent calls with the same ID return the existing instance without re-configuring.
+///
 /// @param[in] thermocoupleID Channel identifier.
+/// @param[in] spi            SPI bus handle returned by SPIOpen().
 /// @return Handle to the thermocouple instance.
-ThermocoupleRef TCOpen( ThermocoupleID thermocoupleID ) {
+ThermocoupleRef TCOpen( ThermocoupleID thermocoupleID, SPIRef spi ) {
     ThermocoupleRef tc = &instances[ (uint8_t)thermocoupleID ];
+
+    if ( tc->spi == NULL ) {
+        tc->spi = spi;
+        TCWriteReg( tc, RegCr1, Cr1TypeK );
+        TCWriteReg( tc, RegCr0, (uint8_t)Cr0ConvModeAuto | (uint8_t)Cr0OcFault100Ms | (uint8_t)Cr0CjDisable );
+        osEventFlagsSet( DeviceStatusFlagsHandle, ( tc->id == Thermocouple1 ) ?
+                         BIT( FlagThermocouple1Ready ) : BIT( FlagThermocouple2Ready ) );
+    }
+
     if ( tc->externalCjt == NULL ) {
         tc->externalCjt = TMOpen( tc->externalCjtId );
     }
+
     return tc;
 }
 
 /// @brief Signal that a new sample cycle should begin; hardware I/O happens in TCProcess().
 /// @param[in] tc Handle returned by TCOpen().
-/// @note Sets the pendingSample flag only. Actual SPI write occurs in TCProcess().
 void TCRequestSample( ThermocoupleRef tc ) {
     if ( tc == NULL || tc->externalCjt == NULL ) return;
-    tc->pendingSample = true;
+    osEventFlagsSet( tc->statusHandle, BIT( FlagTCStatusSamplePending ) );
 }
 
 /// @brief Return true if a new sample has been decoded since the last check.
@@ -177,9 +183,8 @@ void TCProcess( void ) {
         uint32_t faultBit  = ( tc->id == Thermocouple1 ) ? BIT( FlagThermocouple1Fault ) : BIT( FlagThermocouple2Fault );
 
         // Inject cold-junction temperature if a sample was requested.
-        if ( tc->pendingSample ) {
-            tc->pendingSample = false;
-            osEventFlagsClear( tc->statusHandle, 0x00FFFFFF );
+        if ( osEventFlagsGet( tc->statusHandle ) & BIT( FlagTCStatusSamplePending ) ) {
+            osEventFlagsClear( tc->statusHandle, OS_USER_FLAGS_MASK );
 
             Temperature cjt     = TMGetTemperature( tc->externalCjt );
             // MAX31856 CJT register format: signed 14-bit in units of 1/64 degree C
@@ -187,8 +192,8 @@ void TCProcess( void ) {
             uint8_t     tx_h[ 2 ] = { (uint8_t)( (uint8_t)RegCjth | 0x80 ), (uint8_t)( ( cj_bits >> 8 ) & 0xFF ) };
             uint8_t     tx_l[ 2 ] = { (uint8_t)( (uint8_t)RegCjtl | 0x80 ), (uint8_t)( cj_bits & 0xFF ) };
 
-            if ( !SPIWriteSync( tc->csPort, tc->csPin, tx_h, 2, 5 ) ||
-                 !SPIWriteSync( tc->csPort, tc->csPin, tx_l, 2, 5 ) ) {
+            if ( !SPIWriteSync( tc->spi, tc->csPort, tc->csPin, tx_h, 2, 5 ) ||
+                 !SPIWriteSync( tc->spi, tc->csPort, tc->csPin, tx_l, 2, 5 ) ) {
                 osEventFlagsSet( tc->statusHandle, BIT( FlagTCStatusHardwareFault ) );
             }
         }
@@ -208,8 +213,8 @@ void TCProcess( void ) {
 
         // Read fault status register if FAULT pin was asserted by ISR.
         // SR is read here (not in the ISR) to avoid SPI transactions from interrupt context.
-        if ( tc->faultPending ) {
-            tc->faultPending = false;
+        if ( osEventFlagsGet( tc->statusHandle ) & BIT( FlagTCStatusFaultPending ) ) {
+            osEventFlagsClear( tc->statusHandle, BIT( FlagTCStatusFaultPending ) );
             uint8_t sr;
             TCReadRegs( tc, RegSr, &sr, 1 );
             // SR bits 7:2 map to ThermocoupleStatusBit bits 9:4 (offset by 2)
@@ -237,17 +242,17 @@ void TCHandleDRDYInterrupt( uint16_t GPIO_Pin ) {
     }
 }
 
-/// @brief FAULT rising-edge ISR handler — records that a fault occurred on the matching instance.
+/// @brief FAULT rising-edge ISR handler — sets FlagTCStatusFaultPending on the matching instance.
 ///
-/// Does not read the SPI fault register (to avoid SPI from ISR context). Sets
-/// the faultPending flag; TCProcess() reads the status register on the next tick.
+/// Does not read the SPI fault register (to avoid SPI from ISR context). TCProcess()
+/// reads the status register on the next tick.
 ///
 /// @param[in] GPIO_Pin HAL pin mask; compared against each instance's faultPin.
-/// @warning ISR context. Sets a volatile bool only — no SPI access, no FreeRTOS blocking API.
+/// @warning ISR context. osEventFlagsSet() only — no SPI access.
 void TCHandleFaultInterrupt( uint16_t GPIO_Pin ) {
     for ( uint8_t i = 0; i < 2; i++ ) {
         if ( GPIO_Pin == instances[ i ].faultPin ) {
-            instances[ i ].faultPending = true;
+            osEventFlagsSet( instances[ i ].statusHandle, BIT( FlagTCStatusFaultPending ) );
         }
     }
 }
@@ -262,7 +267,7 @@ void TCHandleFaultInterrupt( uint16_t GPIO_Pin ) {
 /// @param[in] val Byte to write.
 static void TCWriteReg( ThermocoupleRef tc, MaxRegister reg, uint8_t val ) {
     uint8_t tx[ 2 ] = { (uint8_t)( (uint8_t)reg | 0x80 ), val };
-    if ( !SPIWriteSync( tc->csPort, tc->csPin, tx, 2, 10 ) ) {
+    if ( !SPIWriteSync( tc->spi, tc->csPort, tc->csPin, tx, 2, 10 ) ) {
         osEventFlagsSet( tc->statusHandle, BIT( FlagTCStatusHardwareFault ) );
     }
 }
@@ -279,7 +284,7 @@ static void TCWriteReg( ThermocoupleRef tc, MaxRegister reg, uint8_t val ) {
 /// @param[in]  len    Number of bytes to read.
 static void TCReadRegs( ThermocoupleRef tc, MaxRegister reg, uint8_t* buffer, uint8_t len ) {
     uint8_t addr = (uint8_t)( (uint8_t)reg & 0x7F );
-    if ( !SPITransceiveSync( tc->csPort, tc->csPin, &addr, 1, buffer, len, 10 ) ) {
+    if ( !SPITransceiveSync( tc->spi, tc->csPort, tc->csPin, &addr, 1, buffer, len, 10 ) ) {
         osEventFlagsSet( tc->statusHandle, BIT( FlagTCStatusHardwareFault ) );
     }
 }

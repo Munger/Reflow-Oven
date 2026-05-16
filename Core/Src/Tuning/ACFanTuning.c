@@ -57,163 +57,97 @@
 // ============================================================================
 
 /// @brief TRIAC channel used by this module.
-///        Change this constant if the oven fan is ever moved to a different channel.
-#define AC_FAN_TRIAC_ID TriacOvenFan
+static const TriacID kAcFanTriacId = TriacOvenFan;
 
 // ============================================================================
 // CALIBRATION CONSTANTS
 // ============================================================================
 
-/// @brief Minimum TRIAC phase-angle delay in microseconds.
-///        At this value the gate fires near the voltage zero crossing — maximum power.
-#define AC_FAN_MIN_ALPHA_US     1000
+// ============================================================================
+// Calibration timing and threshold constants
+// ============================================================================
 
-/// @brief Maximum TRIAC phase-angle delay in microseconds.
-///        At this value the gate fires late in the half-cycle — minimum power.
-#define AC_FAN_MAX_ALPHA_US     7500
-
-/// @brief Maximum burst window depth in mains half-cycles.
-///        Both `burstOn` and `burstWindow` are clamped to this value.
-#define AC_FAN_MAX_BURST_WINDOW 30
-
-/// @brief Number of independent measurement trials averaged per triplet under normal conditions.
-///        Reduced to REPEAT_COUNT_REDUCED for suspicious pairs (stall counter >= STALL_COUNT_REDUCE).
-///        On the first stall, MeasureTriplet() bails immediately regardless of this value.
-#define REPEAT_COUNT         3
-
-/// @brief Reduced trial count applied to (alpha, nOn) pairs with elevated stall histories.
-#define REPEAT_COUNT_REDUCED 1
-
-/// @brief Full-power spinup timeout in milliseconds before a stall is declared.
-#define SPINUP_TIMEOUT_MS 600
-
-/// @brief Within the spinup window, if the rotor has not moved at all within this many
-///        milliseconds, it is declared stalled.
-#define STALL_TIMEOUT_MS 100
-
-/// @brief Hard settle timeout in milliseconds. If RPM has not stabilised within this
-///        window the result is recorded as unsettled and an oscillation penalty is applied.
-#define SETTLE_TIMEOUT_MS 10000
-
-/// @brief Peak-to-peak RPM spread across the rolling settle window considered stable.
-#define SETTLE_P2P_THRESHOLD 20
-
-/// @brief Number of samples in the rolling settle window.
-///        Samples are taken 100 ms apart, so this window spans 1 second of velocity data.
-#define SETTLE_WINDOW_SIZE 10
-
-/// @brief Inter-sample interval for jerk measurement in milliseconds.
-#define JERK_POLL_MS 5
-
-/// @brief Duration of the peak-jerk sampling window per trial in milliseconds.
-#define JERK_WINDOW_MS 1000
-
-/// @brief Polling interval while waiting for the rotor to coast to rest after TriacOff().
-#define SPINDOWN_POLL_MS 50
-
-/// @brief RPM below which the rotor is considered fully stopped.
-#define SPINDOWN_RPM_THRESHOLD 2
-
-/// @brief Full-power soak time in milliseconds before sampling motorMaxRPM at calibration start.
-///        Gives the rotor time to reach its natural unloaded ceiling before the reading is taken.
-#define MAX_RPM_SETTLE_MS 5000
+static const uint16_t   kAcFanMinAlphaUs    = 1000U;  ///< TRIAC delay at maximum power (minimum delay).
+static const uint16_t   kAcFanMaxAlphaUs    = 7500U;  ///< TRIAC delay at minimum power (maximum delay).
+static const uint8_t    kAcFanMaxBurstWindow = 30U;   ///< Maximum burst window depth in half-cycles.
+static const uint8_t    kRepeatCount        = 3U;     ///< Trial repetitions per triplet under normal conditions.
+static const uint8_t    kRepeatCountReduced = 1U;     ///< Reduced trials for pairs with elevated stall history.
+static const DurationMs kSpinupTimeoutMs    = 600U;   ///< Full-power spinup timeout before stall is declared.
+static const DurationMs kStallTimeoutMs     = 100U;   ///< No-movement window within spinup before stall is declared.
+static const DurationMs kSettleTimeoutMs    = 10000U; ///< Hard settle timeout; unsettled → oscillation penalty.
+static const uint16_t   kSettleP2pThreshold = 20U;   ///< Peak-to-peak RPM spread considered stable.
+enum { kSettleWindowSize = 10 };                       ///< Rolling settle window depth (samples 100 ms apart).
+static const DurationMs kJerkPollMs         = 5U;    ///< Inter-sample interval for jerk measurement.
+static const DurationMs kJerkWindowMs       = 1000U; ///< Duration of the peak-jerk sampling window.
+static const DurationMs kSpindownPollMs     = 50U;   ///< Poll interval while waiting for rotor to coast to rest.
+static const Rpm        kSpindownRpmThreshold = 2U;  ///< RPM below which rotor is considered fully stopped.
+static const DurationMs kMaxRpmSettleMs     = 5000U; ///< Full-power soak before sampling motorMaxRPM.
 
 // ============================================================================
 // STRESS MODEL CONSTANTS
 // ============================================================================
 
-/// @brief Jerk ceiling in RPM/interval² units as computed by MeasurePeakJerk().
-///        Peak jerk values at or above this ceiling map to full-scale jerk stress (1000 permille).
-/// @warning This value must be determined empirically for the specific motor.
-///          The default is a conservative starting point only.
-#define AC_FAN_JERK_CEILING 1000
+// ============================================================================
+// Stress model constants
+// ============================================================================
 
-/// @brief Stress factor cap. Any result at or above this is treated as unfeasible.
-#define AC_FAN_STRESS_FACTOR_MAX 1000000UL
-
-/// @brief Jerk stress weight in permille. Higher jerk = more bearing shock.
-///        Must sum to 1000 with WEIGHT_SLIP_PM.
-#define WEIGHT_JERK_PM 600  // 60% — jerk (mechanical shock)
-
-/// @brief Slip stress weight in permille. Higher slip = more rotor heating and torque ripple.
-///        Must sum to 1000 with WEIGHT_JERK_PM.
-#define WEIGHT_SLIP_PM 400  // 40% — synchronous slip (thermal)
-
-/// @brief Oscillation penalty per RPM of peak-to-peak spread when the motor did not settle
-///        within SETTLE_TIMEOUT_MS. Makes unstable operating points strongly unfavourable.
-#define OSCILLATION_PENALTY 50
-
-/// @brief Synchronous speed for a 2-pole motor on 50 Hz mains in RPM.
-#define SYNC_SPEED_RPM 3000
+/// @warning kAcFanJerkCeiling must be determined empirically. Default is a conservative starting point.
+static const uint32_t kAcFanJerkCeiling     = 1000U;      ///< Jerk ceiling in RPM/interval² — maps to full-scale stress.
+static const uint32_t kAcFanStressFactorMax = 1000000UL;  ///< Stress cap; any result at or above this is unfeasible.
+static const uint32_t kWeightJerkPm         = 600U;       ///< Jerk stress weight in permille (must sum to 1000 with kWeightSlipPm).
+static const uint32_t kWeightSlipPm         = 400U;       ///< Slip stress weight in permille (must sum to 1000 with kWeightJerkPm).
+static const uint32_t kOscillationPenalty   = 50U;        ///< Extra stress per RPM of p2p spread when motor does not settle.
+static const Rpm      kSyncSpeedRpm         = 3000U;      ///< Synchronous speed for a 2-pole motor on 50 Hz mains.
 
 // ============================================================================
 // SEARCH GRID CONSTANTS
 // ============================================================================
 
-/// @brief Number of alpha (phase-angle) values in the Phase 1 coarse grid.
-#define PHASE1_ALPHA_STEPS 5
+// ============================================================================
+// Search grid constants
+// ============================================================================
 
-/// @brief Number of nOn (burst duty) values in the Phase 1 coarse grid.
-#define PHASE1_NON_STEPS   5
-
-/// @brief Number of nOff (burst gap) values in the Phase 1 coarse grid.
-#define PHASE1_NOFF_COUNT  3
+enum { kPhase1AlphaSteps = 5 }; ///< Alpha (phase-angle) values in the Phase 1 coarse grid.
+enum { kPhase1NonSteps   = 5 }; ///< nOn (burst duty) values in the Phase 1 coarse grid.
+enum { kPhase1NoffCount  = 3 }; ///< nOff (burst gap) values in the Phase 1 coarse grid.
 
 /// @brief Fixed nOff values for Phase 1, in ascending order.
 ///
 /// The nOff loop bails on stall since kPhase1NoffValues is ascending —
 /// higher indices mean less duty, which can only worsen a stall.
 /// Do not reorder.
-static const uint8_t kPhase1NoffValues[ PHASE1_NOFF_COUNT ] = { 0, 7, 15 };
+static const uint8_t kPhase1NoffValues[ kPhase1NoffCount ] = { 0, 7, 15 };
 
-/// @brief Phase 1 RPM acceptance tolerance in permille of motorMaxRPM (±5 %).
-#define PHASE1_RPM_TOLERANCE_PM 50
-
-/// @brief Phase 2 fine-search alpha radius in microseconds (±PHASE2_ALPHA_RADIUS_US).
-#define PHASE2_ALPHA_RADIUS_US 1000
-
-/// @brief Phase 2 alpha step size in microseconds within the fine neighbourhood.
-#define PHASE2_ALPHA_STEP_US   250
-
-/// @brief Phase 2 nOn radius in half-cycle steps (±PHASE2_NON_RADIUS).
-#define PHASE2_NON_RADIUS      3
-
-/// @brief Phase 2 nOff radius in half-cycle steps (±PHASE2_NOFF_RADIUS).
-#define PHASE2_NOFF_RADIUS     3
-
-/// @brief Phase 2 RPM acceptance tolerance in permille of motorMaxRPM (±2 %).
-#define PHASE2_RPM_TOLERANCE_PM 20
-
-/// @brief Speed increment between profile slots in permille (100 = 10 %).
-#define AC_FAN_STEP_INCREMENT_PM 100
+static const uint16_t kPhase1RpmTolerancePm = 50U;  ///< Phase 1 RPM acceptance tolerance in permille (±5%).
+static const uint32_t kPhase2AlphaRadiusUs  = 1000U; ///< Phase 2 fine-search alpha radius in microseconds.
+static const uint32_t kPhase2AlphaStepUs    = 250U;  ///< Phase 2 alpha step size in microseconds.
+static const uint8_t  kPhase2NonRadius      = 3U;   ///< Phase 2 nOn radius in half-cycle steps.
+static const uint8_t  kPhase2NoffRadius     = 3U;   ///< Phase 2 nOff radius in half-cycle steps.
+static const uint16_t kPhase2RpmTolerancePm = 20U;  ///< Phase 2 RPM acceptance tolerance in permille (±2%).
+static const uint16_t kAcFanStepIncrementPm = 100U; ///< Speed increment between profile slots in permille.
 
 // ============================================================================
 // STALL MEMORY CONSTANTS
 // ============================================================================
 
-/// @brief Stall count threshold above which a (alpha, nOn) pair uses reduced trial count.
-///
-/// Pairs with 2 or more cross-step stalls use REPEAT_COUNT_REDUCED trials instead of
-/// the full REPEAT_COUNT. A single stall never permanently degrades a pair.
-#define STALL_COUNT_REDUCE 2
+// ============================================================================
+// Stall memory constants
+// ============================================================================
 
-/// @brief Stall count threshold above which a (alpha, nOn) pair is skipped entirely.
-///
-/// Three stalls across the calibration run is treated as conclusive evidence that the
-/// pair cannot sustain rotation for this motor. The pair produces no measurement.
-#define STALL_COUNT_SKIP   3
+static const uint8_t kStallCountReduce = 2U; ///< Stall count at which a pair switches to reduced trial count.
+static const uint8_t kStallCountSkip   = 3U; ///< Stall count at which a pair is skipped entirely.
 
-/// @brief Total number of (alpha, nOn) pairs tracked in the stall map.
-#define STALL_MAP_PAIRS ( PHASE1_ALPHA_STEPS * PHASE1_NON_STEPS )  // 25
+/// @brief Total (alpha, nOn) pairs tracked in the stall map (= kPhase1AlphaSteps * kPhase1NonSteps).
+enum { kStallMapPairs = kPhase1AlphaSteps * kPhase1NonSteps };
 
-/// @brief Number of uint32_t words needed to store STALL_MAP_PAIRS 2-bit counters.
-#define STALL_MAP_WORDS 2                                           // ceil(25 * 2 / 32) = 2 uint32_t words
+/// @brief uint32_t words needed to store kStallMapPairs 2-bit saturating counters.
+enum { kStallMapWords = 2 };
 
 /// @brief Read the 2-bit saturating stall counter for pair index @p p.
-/// @param[in] map  Packed counter array (STALL_MAP_WORDS words).
+/// @param[in] map  Packed counter array (kStallMapWords words).
 /// @param[in] p    Flat pair index, range [0, STALL_MAP_PAIRS).
 /// @return Counter value in range [0, 3].
-static inline uint8_t StallMapGet( const uint32_t map[ STALL_MAP_WORDS ], uint8_t p ) {
+static inline uint8_t StallMapGet( const uint32_t map[ kStallMapWords ], uint8_t p ) {
     uint8_t bit   = (uint8_t)( p * 2u );
     uint8_t word  = bit >> 5u;   // divide by 32
     uint8_t shift = bit & 31u;   // modulo 32
@@ -221,9 +155,9 @@ static inline uint8_t StallMapGet( const uint32_t map[ STALL_MAP_WORDS ], uint8_
 }
 
 /// @brief Increment the 2-bit saturating stall counter for pair index @p p, clamping at 3.
-/// @param[in,out] map  Packed counter array (STALL_MAP_WORDS words).
+/// @param[in,out] map  Packed counter array (kStallMapWords words).
 /// @param[in]     p    Flat pair index, range [0, STALL_MAP_PAIRS).
-static inline void StallMapIncrement( uint32_t map[ STALL_MAP_WORDS ], uint8_t p ) {
+static inline void StallMapIncrement( uint32_t map[ kStallMapWords ], uint8_t p ) {
     uint8_t bit   = (uint8_t)( p * 2u );
     uint8_t word  = bit >> 5u;
     uint8_t shift = bit & 31u;
@@ -239,7 +173,7 @@ static inline void StallMapIncrement( uint32_t map[ STALL_MAP_WORDS ], uint8_t p
 /// @param[in] ni  nOn grid index [0, PHASE1_NON_STEPS).
 /// @return Flat pair index for use with StallMapGet() / StallMapIncrement().
 static inline uint8_t StallMapIndex( uint8_t ai, uint8_t ni ) {
-    return (uint8_t)( ai * PHASE1_NON_STEPS + ni );
+    return (uint8_t)( ai * kPhase1NonSteps + ni );
 }
 
 // ============================================================================
@@ -301,8 +235,8 @@ static Rpm ReadRPM( void ) {
 /// physically coast to rest before calibration of the next triplet can begin.
 static void RotorStop( void ) {
     TriacOff( s_triac );
-    while ( ReadRPM() > SPINDOWN_RPM_THRESHOLD ) {
-        osDelay( SPINDOWN_POLL_MS );
+    while ( ReadRPM() > kSpindownRpmThreshold ) {
+        osDelay( kSpindownPollMs );
     }
 }
 
@@ -323,13 +257,13 @@ static bool StartupKick( Rpm targetRPM ) {
     Rpm        interceptRPM = (Rpm)( ( (uint32_t)targetRPM * 900UL ) / 1000UL );
     DurationMs elapsed      = 0;
 
-    while ( elapsed < SPINUP_TIMEOUT_MS ) {
+    while ( elapsed < kSpinupTimeoutMs ) {
         osDelay( 2 );
         elapsed += 2;
 
         Rpm current = ReadRPM();
 
-        if ( elapsed >= STALL_TIMEOUT_MS && current < SPINDOWN_RPM_THRESHOLD ) {
+        if ( elapsed >= kStallTimeoutMs && current < kSpindownRpmThreshold ) {
             TriacOff( s_triac );
             return false;
         }
@@ -376,7 +310,7 @@ static void PeriodicFlush( void ) {
 /// @param[out] p2pSpread   Most recent peak-to-peak spread across the window.
 /// @return True if RPM settled within SETTLE_TIMEOUT_MS; false on timeout.
 static bool WaitForSettle( Rpm* settledRPM, uint16_t* p2pSpread ) {
-    Rpm        window[ SETTLE_WINDOW_SIZE ];
+    Rpm        window[ kSettleWindowSize ];
     uint8_t    wIdx    = 0;
     DurationMs elapsed = 0;
 
@@ -384,22 +318,22 @@ static bool WaitForSettle( Rpm* settledRPM, uint16_t* p2pSpread ) {
     *p2pSpread  = 0xFFFFU;
     *settledRPM = 0;
 
-    while ( elapsed < SETTLE_TIMEOUT_MS ) {
-        window[ wIdx % SETTLE_WINDOW_SIZE ] = ReadRPM();
+    while ( elapsed < kSettleTimeoutMs ) {
+        window[ wIdx % kSettleWindowSize ] = ReadRPM();
         wIdx++;
 
         // Evaluate only once the window is fully populated (1 second of data).
-        if ( elapsed >= (DurationMs)( SETTLE_WINDOW_SIZE * 100U ) ) {
+        if ( elapsed >= (DurationMs)( kSettleWindowSize * 100U ) ) {
             Rpm minR = 0xFFFFU, maxR = 0;
 
-            for ( uint8_t i = 0; i < SETTLE_WINDOW_SIZE; i++ ) {
+            for ( uint8_t i = 0; i < kSettleWindowSize; i++ ) {
                 if ( window[ i ] < minR ) minR = window[ i ];
                 if ( window[ i ] > maxR ) maxR = window[ i ];
             }
 
             *p2pSpread = maxR - minR;
 
-            if ( *p2pSpread <= SETTLE_P2P_THRESHOLD ) {
+            if ( *p2pSpread <= kSettleP2pThreshold ) {
                 *settledRPM = ( minR + maxR ) / 2U;
                 return true;
             }
@@ -437,12 +371,12 @@ static uint32_t MeasurePeakJerk( DurationMs durationMs ) {
     DurationMs elapsed      = 0;
 
     while ( elapsed < durationMs ) {
-        osDelay( JERK_POLL_MS );
-        elapsed += JERK_POLL_MS;
+        osDelay( kJerkPollMs );
+        elapsed += kJerkPollMs;
 
         int32_t  currentVelocity = (int32_t)ReadRPM();
-        int32_t  currentAccel    = ( currentVelocity - lastVelocity ) / (int32_t)JERK_POLL_MS;
-        int32_t  jerkRaw         = ( currentAccel - lastAccel ) / (int32_t)JERK_POLL_MS;
+        int32_t  currentAccel    = ( currentVelocity - lastVelocity ) / (int32_t)kJerkPollMs;
+        int32_t  jerkRaw         = ( currentAccel - lastAccel ) / (int32_t)kJerkPollMs;
         uint32_t currentJerk     = (uint32_t)abs( jerkRaw );
 
         if ( currentJerk > peakJerk ) {
@@ -476,23 +410,23 @@ static uint32_t MeasurePeakJerk( DurationMs durationMs ) {
 /// @param[in] peakJerk   Peak jerk measured by MeasurePeakJerk().
 /// @param[in] p2pSpread  Peak-to-peak RPM spread from the settle window.
 /// @param[in] settled    True if RPM settled within the timeout; false if it oscillated.
-/// @return Stress factor in range [0, AC_FAN_STRESS_FACTOR_MAX].
+/// @return Stress factor in range [0, kAcFanStressFactorMax].
 static StressFactor CalculateStress( Rpm rpm, uint32_t peakJerk, uint16_t p2pSpread, bool settled ) {
     // Slip: distance below synchronous speed, clamped to zero if above.
-    int32_t slipVal = (int32_t)SYNC_SPEED_RPM - (int32_t)rpm;
+    int32_t slipVal = (int32_t)kSyncSpeedRpm - (int32_t)rpm;
     if ( slipVal < 0 ) slipVal = 0;
-    Permille slipPm = (Permille)( ( (uint32_t)slipVal * 1000UL ) / SYNC_SPEED_RPM );
+    Permille slipPm = (Permille)( ( (uint32_t)slipVal * 1000UL ) / kSyncSpeedRpm );
 
     // Jerk: clamp to ceiling before scaling to prevent overflow.
-    if ( peakJerk > AC_FAN_JERK_CEILING ) peakJerk = AC_FAN_JERK_CEILING;
-    Permille jerkPm = (Permille)( ( peakJerk * 1000UL ) / AC_FAN_JERK_CEILING );
+    if ( peakJerk > kAcFanJerkCeiling ) peakJerk = kAcFanJerkCeiling;
+    Permille jerkPm = (Permille)( ( peakJerk * 1000UL ) / kAcFanJerkCeiling );
 
     // Weighted sum: 0–1,000,000. Scaled by 100 gives 0–100,000,000.
-    uint32_t weightedSum = ( (uint32_t)jerkPm * WEIGHT_JERK_PM ) + ( (uint32_t)slipPm * WEIGHT_SLIP_PM );
+    uint32_t weightedSum = ( (uint32_t)jerkPm * kWeightJerkPm ) + ( (uint32_t)slipPm * kWeightSlipPm );
     uint32_t baseStress  = weightedSum * 100UL;
 
     if ( !settled ) {
-        baseStress += (uint32_t)p2pSpread * OSCILLATION_PENALTY;
+        baseStress += (uint32_t)p2pSpread * kOscillationPenalty;
     }
 
     return (StressFactor)baseStress;
@@ -535,7 +469,7 @@ typedef struct {
 /// @brief Measure a triplet by running up to @p repeatCount trials and averaging the results.
 ///
 /// On the first stall (`StartupKick()` returns false), the function returns
-/// immediately with `measuredRPM=0` and `stress=AC_FAN_STRESS_FACTOR_MAX`,
+/// immediately with `measuredRPM=0` and `stress=kAcFanStressFactorMax`,
 /// protecting the motor from repeated full-power stall current. `repeatCount` is
 /// passed explicitly so the caller can reduce it for pairs with a suspicious stall
 /// history without changing the global default.
@@ -545,14 +479,14 @@ typedef struct {
 /// @param[in] nOff          Burst off-count.
 /// @param[in] targetRPM     Target RPM for the current calibration step (used by StartupKick).
 /// @param[in] repeatCount   Maximum number of trials to average.
-/// @return Averaged TripletResult. On stall: measuredRPM=0, stress=AC_FAN_STRESS_FACTOR_MAX.
+/// @return Averaged TripletResult. On stall: measuredRPM=0, stress=kAcFanStressFactorMax.
 static TripletResult MeasureTriplet( uint16_t phaseDelayUs, uint8_t nOn, uint8_t nOff, Rpm targetRPM, uint8_t repeatCount ) {
     TripletResult res;
     res.phaseDelayUs = phaseDelayUs;
     res.nOn          = nOn;
     res.nOff         = nOff;
     res.measuredRPM  = 0;
-    res.stress       = AC_FAN_STRESS_FACTOR_MAX;
+    res.stress       = kAcFanStressFactorMax;
 
     uint32_t sumRPM    = 0;
     uint32_t sumStress = 0;
@@ -573,7 +507,7 @@ static TripletResult MeasureTriplet( uint16_t phaseDelayUs, uint8_t nOn, uint8_t
         Rpm      settledRPM = 0;
         uint16_t p2p        = 0xFFFFU;
         bool     settled    = WaitForSettle( &settledRPM, &p2p );
-        uint32_t peakJerk   = MeasurePeakJerk( JERK_WINDOW_MS );
+        uint32_t peakJerk   = MeasurePeakJerk( kJerkWindowMs );
 
         StressFactor s = CalculateStress( settledRPM, peakJerk, p2p, settled );
 
@@ -594,30 +528,30 @@ static TripletResult MeasureTriplet( uint16_t phaseDelayUs, uint8_t nOn, uint8_t
 // INTERNAL — CLAMPING HELPERS
 // ============================================================================
 
-/// @brief Clamp a raw alpha value to [AC_FAN_MIN_ALPHA_US, AC_FAN_MAX_ALPHA_US].
+/// @brief Clamp a raw alpha value to [kAcFanMinAlphaUs, kAcFanMaxAlphaUs].
 /// @param[in] v  Raw signed value from the Phase 2 neighbourhood sweep.
 /// @return Clamped uint16_t alpha in microseconds.
 static uint16_t ClampAlpha( int32_t v ) {
-    if ( v < AC_FAN_MIN_ALPHA_US ) return (uint16_t)AC_FAN_MIN_ALPHA_US;
-    if ( v > AC_FAN_MAX_ALPHA_US ) return (uint16_t)AC_FAN_MAX_ALPHA_US;
+    if ( v < kAcFanMinAlphaUs ) return (uint16_t)kAcFanMinAlphaUs;
+    if ( v > kAcFanMaxAlphaUs ) return (uint16_t)kAcFanMaxAlphaUs;
     return (uint16_t)v;
 }
 
-/// @brief Clamp a raw nOn value to [1, AC_FAN_MAX_BURST_WINDOW].
+/// @brief Clamp a raw nOn value to [1, kAcFanMaxBurstWindow].
 /// @param[in] v  Raw signed value from the Phase 2 neighbourhood sweep.
 /// @return Clamped uint8_t nOn (minimum 1 to keep the gate firing).
 static uint8_t ClampNon( int32_t v ) {
     if ( v < 1 )                       return 1;
-    if ( v > AC_FAN_MAX_BURST_WINDOW ) return (uint8_t)AC_FAN_MAX_BURST_WINDOW;
+    if ( v > kAcFanMaxBurstWindow ) return (uint8_t)kAcFanMaxBurstWindow;
     return (uint8_t)v;
 }
 
-/// @brief Clamp a raw nOff value to [0, AC_FAN_MAX_BURST_WINDOW].
+/// @brief Clamp a raw nOff value to [0, kAcFanMaxBurstWindow].
 /// @param[in] v  Raw signed value from the Phase 2 neighbourhood sweep.
 /// @return Clamped uint8_t nOff (0 = continuous firing within the window).
 static uint8_t ClampNoff( int32_t v ) {
     if ( v < 0 )                       return 0;
-    if ( v > AC_FAN_MAX_BURST_WINDOW ) return (uint8_t)AC_FAN_MAX_BURST_WINDOW;
+    if ( v > kAcFanMaxBurstWindow ) return (uint8_t)kAcFanMaxBurstWindow;
     return (uint8_t)v;
 }
 
@@ -642,7 +576,7 @@ static int32_t InterpLinear( int32_t low, int32_t high, Permille fractionPm ) {
 ///
 /// Ensures the runtime interpolator always has a valid drive configuration for
 /// every slot. Slot 0 is unconditionally set to motor-off:
-///   - `phaseDelayUs = AC_FAN_MAX_ALPHA_US` (most restrictive phase angle)
+///   - `phaseDelayUs = kAcFanMaxAlphaUs` (most restrictive phase angle)
 ///   - `burstOn = 0`       (gate never fires)
 ///   - `burstWindow = 1`   (non-zero to avoid division-by-zero in the driver)
 ///
@@ -650,7 +584,7 @@ static int32_t InterpLinear( int32_t low, int32_t high, Permille fractionPm ) {
 static void EnforceOperationalFloor( ACFanProfileMapPtr map ) {
     int8_t lowest = -1;
 
-    for ( uint8_t step = 1; step <= AC_FAN_NUM_STEPS; step++ ) {
+    for ( uint8_t step = 1; step <= kAcFanNumSteps; step++ ) {
         if ( map->slots[ step ].isFeasible ) {
             lowest = (int8_t)step;
             break;
@@ -665,7 +599,7 @@ static void EnforceOperationalFloor( ACFanProfileMapPtr map ) {
         }
     }
 
-    map->slots[ 0 ].strategy.phaseDelayUs = AC_FAN_MAX_ALPHA_US;
+    map->slots[ 0 ].strategy.phaseDelayUs = kAcFanMaxAlphaUs;
     map->slots[ 0 ].strategy.burstOn      = 0;
     map->slots[ 0 ].strategy.burstWindow  = 1;
     map->slots[ 0 ].actualRPM             = 0;
@@ -681,8 +615,8 @@ static void EnforceOperationalFloor( ACFanProfileMapPtr map ) {
 /// Acquires the TRIAC channel (AC_FAN_TRIAC_ID) and the rotary encoder handle.
 /// Must be called once before ACFanRunCalibration() or ACFanDrive().
 void ACFanInitCalibration( void ) {
-    s_triac   = TriacOpen( AC_FAN_TRIAC_ID );
-    s_encoder = REOpen();
+    s_triac   = TriacOpen( kAcFanTriacId );
+    s_encoder = REGetRef( RotaryEncoder1 );
 }
 
 // ============================================================================
@@ -693,7 +627,7 @@ void ACFanInitCalibration( void ) {
 ///
 /// Algorithm overview:
 ///   1. Measure `motorMaxRPM` at full power after MAX_RPM_SETTLE_MS.
-///   2. For each speed step 1..AC_FAN_NUM_STEPS:
+///   2. For each speed step 1..kAcFanNumSteps:
 ///      a. Try the Phase 2 winner from the previous step as a seed. If it lands
 ///         within Phase 1 tolerance the coarse grid is skipped entirely.
 ///      b. Phase 1 (coarse): up to 75 triplets across a sparse 5×5×3 grid, ±5 % tolerance.
@@ -720,17 +654,17 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
     // Cross-step stall memory: 2-bit saturating counters for each
     // (alphaIndex, nOnIndex) pair in the Phase 1 grid.
     // Persists across all steps; cleared only at the start of calibration.
-    uint32_t stallMap[ STALL_MAP_WORDS ] = { 0, 0 };
+    uint32_t stallMap[ kStallMapWords ] = { 0, 0 };
 
     // Previous step's Phase 2 winner. Used to seed the next step's search.
     // Initialised to an invalid sentinel (stress == MAX) so the first step
     // always falls through to the full coarse grid.
     TripletResult prevWinner;
-    prevWinner.phaseDelayUs = AC_FAN_MIN_ALPHA_US;
+    prevWinner.phaseDelayUs = kAcFanMinAlphaUs;
     prevWinner.nOn          = 1;
     prevWinner.nOff         = 0;
     prevWinner.measuredRPM  = 0;
-    prevWinner.stress       = AC_FAN_STRESS_FACTOR_MAX;
+    prevWinner.stress       = kAcFanStressFactorMax;
 
 #if PERIODIC_FLUSH
     uint32_t tripletCount = 0;
@@ -744,7 +678,7 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
     {
         TriacDriveParams fullPower = { .phaseDelayUs = 0, .burstOn = 1, .burstWindow = 1 };
         TriacRun( s_triac, fullPower );
-        osDelay( MAX_RPM_SETTLE_MS );
+        osDelay( kMaxRpmSettleMs );
         mapOut->motorMaxRPM = ReadRPM();
         TriacOff( s_triac );
     }
@@ -758,23 +692,23 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
     // -------------------------------------------------------------------------
     // Step 2: Per-step calibration loop.
     // -------------------------------------------------------------------------
-    for ( uint8_t step = 1; step <= AC_FAN_NUM_STEPS; step++ ) {
-        Rpm targetRPM = (Rpm)( ( (uint32_t)motorMax * step * AC_FAN_STEP_INCREMENT_PM ) / 1000UL );
-        Rpm tolP1     = (Rpm)( ( (uint32_t)motorMax * PHASE1_RPM_TOLERANCE_PM ) / 1000UL );
-        Rpm tolP2     = (Rpm)( ( (uint32_t)motorMax * PHASE2_RPM_TOLERANCE_PM ) / 1000UL );
+    for ( uint8_t step = 1; step <= kAcFanNumSteps; step++ ) {
+        Rpm targetRPM = (Rpm)( ( (uint32_t)motorMax * step * kAcFanStepIncrementPm ) / 1000UL );
+        Rpm tolP1     = (Rpm)( ( (uint32_t)motorMax * kPhase1RpmTolerancePm ) / 1000UL );
+        Rpm tolP2     = (Rpm)( ( (uint32_t)motorMax * kPhase2RpmTolerancePm ) / 1000UL );
 
         // Stall flags for Phase 1 pairs on this step only. Used to update
         // the cross-step stallMap after Phase 1 completes.
         // One bit per pair; bit set means this step produced a stall.
-        uint32_t stepStallFlags[ STALL_MAP_WORDS ] = { 0, 0 };
+        uint32_t stepStallFlags[ kStallMapWords ] = { 0, 0 };
 
         // Initialise best candidates with worst-case sentinel values.
         TripletResult bestP1;
-        bestP1.phaseDelayUs = AC_FAN_MIN_ALPHA_US;
+        bestP1.phaseDelayUs = kAcFanMinAlphaUs;
         bestP1.nOn          = 1;
         bestP1.nOff         = 0;
         bestP1.measuredRPM  = 0;
-        bestP1.stress       = AC_FAN_STRESS_FACTOR_MAX;
+        bestP1.stress       = kAcFanStressFactorMax;
 
         // ---------------------------------------------------------------------
         // Previous-winner seed attempt.
@@ -790,17 +724,17 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
         // ---------------------------------------------------------------------
         bool skippedCoarseGrid = false;
 
-        if ( prevWinner.stress < AC_FAN_STRESS_FACTOR_MAX ) {
+        if ( prevWinner.stress < kAcFanStressFactorMax ) {
             TripletResult seed = MeasureTriplet( prevWinner.phaseDelayUs,
                                                  prevWinner.nOn,
                                                  prevWinner.nOff,
                                                  targetRPM,
-                                                 REPEAT_COUNT );
+                                                 kRepeatCount );
 
             Rpm lo = ( targetRPM > tolP1 ) ? ( targetRPM - tolP1 ) : 0;
             Rpm hi = targetRPM + tolP1;
 
-            if ( seed.measuredRPM >= lo && seed.measuredRPM <= hi && seed.stress < AC_FAN_STRESS_FACTOR_MAX ) {
+            if ( seed.measuredRPM >= lo && seed.measuredRPM <= hi && seed.stress < kAcFanStressFactorMax ) {
                 // Previous winner is still valid for this step. Use it as the
                 // Phase 1 seed and skip the coarse grid.
                 bestP1             = seed;
@@ -820,37 +754,37 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
         // nOff:  3 fixed values in ascending order: 0, 7, 15.
         //
         // Cross-step stall counters govern how each pair is treated:
-        //   counter == 0 or 1  → full REPEAT_COUNT trials
-        //   counter >= STALL_COUNT_REDUCE → REPEAT_COUNT_REDUCED trials
-        //   counter >= STALL_COUNT_SKIP   → skip entirely, no measurement
+        //   counter == 0 or 1  → full kRepeatCount trials
+        //   counter >= kStallCountReduce → kRepeatCountReduced trials
+        //   counter >= kStallCountSkip   → skip entirely, no measurement
         //
         // nOff loop bails on stall since kPhase1NoffValues is ascending —
         // higher nOff means less duty, which can only worsen a stall.
         // ---------------------------------------------------------------------
         if ( !skippedCoarseGrid ) {
-            for ( uint8_t ai = 0; ai < PHASE1_ALPHA_STEPS; ai++ ) {
-                uint16_t alpha = (uint16_t)( AC_FAN_MIN_ALPHA_US +
-                                             ( (uint32_t)ai * ( AC_FAN_MAX_ALPHA_US - AC_FAN_MIN_ALPHA_US ) ) /
-                                                 ( PHASE1_ALPHA_STEPS - 1 ) );
+            for ( uint8_t ai = 0; ai < kPhase1AlphaSteps; ai++ ) {
+                uint16_t alpha = (uint16_t)( kAcFanMinAlphaUs +
+                                             ( (uint32_t)ai * ( kAcFanMaxAlphaUs - kAcFanMinAlphaUs ) ) /
+                                                 ( kPhase1AlphaSteps - 1 ) );
 
-                for ( uint8_t ni = 0; ni < PHASE1_NON_STEPS; ni++ ) {
-                    uint8_t nOn = (uint8_t)( 1 + ( (uint32_t)ni * ( AC_FAN_MAX_BURST_WINDOW - 1 ) ) /
-                                                      ( PHASE1_NON_STEPS - 1 ) );
+                for ( uint8_t ni = 0; ni < kPhase1NonSteps; ni++ ) {
+                    uint8_t nOn = (uint8_t)( 1 + ( (uint32_t)ni * ( kAcFanMaxBurstWindow - 1 ) ) /
+                                                      ( kPhase1NonSteps - 1 ) );
 
                     uint8_t pairIdx    = StallMapIndex( ai, ni );
                     uint8_t stallCount = StallMapGet( stallMap, pairIdx );
 
                     // Skip pairs that have stalled on every previous step.
-                    if ( stallCount >= STALL_COUNT_SKIP ) {
+                    if ( stallCount >= kStallCountSkip ) {
                         continue;
                     }
 
                     // Use reduced trial count for suspicious pairs.
-                    uint8_t trials = ( stallCount >= STALL_COUNT_REDUCE ) ? REPEAT_COUNT_REDUCED : REPEAT_COUNT;
+                    uint8_t trials = ( stallCount >= kStallCountReduce ) ? kRepeatCountReduced : kRepeatCount;
 
                     bool pairStalled = false;
 
-                    for ( uint8_t fi = 0; fi < PHASE1_NOFF_COUNT; fi++ ) {
+                    for ( uint8_t fi = 0; fi < kPhase1NoffCount; fi++ ) {
                         uint8_t nOff = kPhase1NoffValues[ fi ];
 
 #if PERIODIC_FLUSH
@@ -865,7 +799,7 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
                         // Stall detected: record it and bail the nOff loop.
                         // kPhase1NoffValues is ascending so remaining entries
                         // will only reduce duty further — pointless to continue.
-                        if ( res.measuredRPM == 0 && res.stress == AC_FAN_STRESS_FACTOR_MAX ) {
+                        if ( res.measuredRPM == 0 && res.stress == kAcFanStressFactorMax ) {
                             pairStalled = true;
                             break;
                         }
@@ -890,7 +824,7 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
 
             // Update cross-step stall counters from this step's results.
             // Only pairs that stalled on this step get their counter incremented.
-            for ( uint8_t p = 0; p < STALL_MAP_PAIRS; p++ ) {
+            for ( uint8_t p = 0; p < kStallMapPairs; p++ ) {
                 uint8_t word  = p >> 5u;
                 uint8_t shift = p & 31u;
                 if ( stepStallFlags[ word ] & ( 1u << shift ) ) {
@@ -914,14 +848,14 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
         // ---------------------------------------------------------------------
         TripletResult bestP2 = bestP1;
 
-        int32_t aStart   = (int32_t)bestP1.phaseDelayUs - PHASE2_ALPHA_RADIUS_US;
-        int32_t aEnd     = (int32_t)bestP1.phaseDelayUs + PHASE2_ALPHA_RADIUS_US;
-        int32_t onStart  = (int32_t)bestP1.nOn - PHASE2_NON_RADIUS;
-        int32_t onEnd    = (int32_t)bestP1.nOn + PHASE2_NON_RADIUS;
-        int32_t offStart = (int32_t)bestP1.nOff - PHASE2_NOFF_RADIUS;
-        int32_t offEnd   = (int32_t)bestP1.nOff + PHASE2_NOFF_RADIUS;
+        int32_t aStart   = (int32_t)bestP1.phaseDelayUs - (int32_t)kPhase2AlphaRadiusUs;
+        int32_t aEnd     = (int32_t)bestP1.phaseDelayUs + (int32_t)kPhase2AlphaRadiusUs;
+        int32_t onStart  = (int32_t)bestP1.nOn - kPhase2NonRadius;
+        int32_t onEnd    = (int32_t)bestP1.nOn + kPhase2NonRadius;
+        int32_t offStart = (int32_t)bestP1.nOff - kPhase2NoffRadius;
+        int32_t offEnd   = (int32_t)bestP1.nOff + kPhase2NoffRadius;
 
-        for ( int32_t aRaw = aStart; aRaw <= aEnd; aRaw += PHASE2_ALPHA_STEP_US ) {
+        for ( int32_t aRaw = aStart; aRaw <= aEnd; aRaw += (int32_t)kPhase2AlphaStepUs ) {
             uint16_t alpha = ClampAlpha( aRaw );
 
             for ( int32_t onRaw = onStart; onRaw <= onEnd; onRaw++ ) {
@@ -937,11 +871,11 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
                     tripletCount++;
 #endif
 
-                    TripletResult res = MeasureTriplet( alpha, nOn, nOff, targetRPM, REPEAT_COUNT );
+                    TripletResult res = MeasureTriplet( alpha, nOn, nOff, targetRPM, kRepeatCount );
 
                     // Stall detected: bail out of the nOff loop. Increasing
                     // nOff further reduces duty and can only make this worse.
-                    if ( res.measuredRPM == 0 && res.stress == AC_FAN_STRESS_FACTOR_MAX ) {
+                    if ( res.measuredRPM == 0 && res.stress == kAcFanStressFactorMax ) {
                         break;
                     }
 
@@ -960,7 +894,7 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
         // meaning at least one valid trial completed successfully.
         // Save bestP2 as the seed for the next step.
         // ---------------------------------------------------------------------
-        bool feasible = ( bestP2.stress < AC_FAN_STRESS_FACTOR_MAX );
+        bool feasible = ( bestP2.stress < kAcFanStressFactorMax );
 
         mapOut->slots[ step ].isFeasible            = feasible;
         mapOut->slots[ step ].actualRPM             = bestP2.measuredRPM;
@@ -989,7 +923,7 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
 
 /// @brief Drive the fan at @p requestedPm permille of motorMaxRPM using a calibrated map.
 ///
-/// The profile map divides the speed range into AC_FAN_NUM_STEPS equal bands.
+/// The profile map divides the speed range into kAcFanNumSteps equal bands.
 /// Requests exactly on a band boundary are applied directly. Requests between
 /// two boundaries are linearly interpolated across all three drive parameters
 /// (phaseDelayUs, burstOn, burstWindow).
@@ -1021,14 +955,14 @@ void ACFanDrive( const ACFanProfileMapPtr map, Permille requestedPm ) {
         return;
     }
 
-    uint8_t lowerIdx = (uint8_t)( requestedPm / AC_FAN_STEP_INCREMENT_PM );
+    uint8_t lowerIdx = (uint8_t)( requestedPm / kAcFanStepIncrementPm );
     uint8_t upperIdx = lowerIdx + 1;
 
-    if ( lowerIdx > AC_FAN_NUM_STEPS ) lowerIdx = AC_FAN_NUM_STEPS;
-    if ( upperIdx > AC_FAN_NUM_STEPS ) upperIdx = AC_FAN_NUM_STEPS;
+    if ( lowerIdx > kAcFanNumSteps ) lowerIdx = kAcFanNumSteps;
+    if ( upperIdx > kAcFanNumSteps ) upperIdx = kAcFanNumSteps;
 
     // Exact boundary — no interpolation needed.
-    if ( lowerIdx == upperIdx || ( requestedPm % AC_FAN_STEP_INCREMENT_PM ) == 0 ) {
+    if ( lowerIdx == upperIdx || ( requestedPm % kAcFanStepIncrementPm ) == 0 ) {
         TriacDriveParams p;
         p.phaseDelayUs = map->slots[ lowerIdx ].strategy.phaseDelayUs;
         p.burstOn      = map->slots[ lowerIdx ].strategy.burstOn;
@@ -1042,7 +976,7 @@ void ACFanDrive( const ACFanProfileMapPtr map, Permille requestedPm ) {
 
     // Fractional position within the band in permille (0–1000).
     // e.g. requestedPm=150 with step=100 → lower=1, fraction=500.
-    Permille fraction = (Permille)( ( requestedPm % AC_FAN_STEP_INCREMENT_PM ) * 10U );
+    Permille fraction = (Permille)( ( requestedPm % kAcFanStepIncrementPm ) * 10U );
 
     // Snap rather than interpolate across the on/off boundary.
     if ( ( low->burstOn == 0 ) != ( high->burstOn == 0 ) ) {

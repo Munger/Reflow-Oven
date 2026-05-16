@@ -17,6 +17,13 @@
 
 #include "Types.h"
 #include "SystemStatusFlags.h"
+#include "I2CManager.h"
+
+/// @brief Logical identifiers for rotary encoder instances managed by this driver.
+typedef enum {
+    RotaryEncoder1 = 0,  ///< AS5600 encoder on the oven fan shaft
+    RotaryEncoderCount
+} RotaryEncoderID;
 
 /// @brief Status and diagnostic flag bit positions for the rotary encoder / oven fan module.
 /// These map 1:1 to the bits in the private ovenFanStatus event flag group.
@@ -28,6 +35,8 @@ typedef enum {
     FlagREStatusMagStrong,           ///< AS5600 reports magnet too close (AGC low)
     FlagREStatusMagMissing,          ///< AS5600 MD bit clear — no magnet detected
     FlagREStatusHardwareFault,       ///< I2C communication failure
+    FlagREIODone,                    ///< Most recent async I2C read completed successfully.
+    FlagREIOError,                   ///< Most recent async I2C read failed.
 
     REFlagsCount
 } REStatusBit;
@@ -37,12 +46,23 @@ _Static_assert( REFlagsCount <= 24, "OvenFanStatusFlags out of bounds" );
 /// @brief Opaque handle to the singleton rotary encoder instance.
 typedef struct RotaryEncoder* RotaryEncoderRef;
 
-/// @brief Initialise the encoder module state and clear the private status flags.
+/// @brief Allocate per-instance resources and initialise the tick counter.
 void             REInitModule( void );
 
-/// @brief Return a handle to the singleton encoder instance.
-/// @return Always returns a valid non-NULL reference.
-RotaryEncoderRef REOpen( void );
+/// @brief Open a handle to a specific encoder instance.
+///
+/// On first call for a given ID: stores @p i2c in the instance. Subsequent calls
+/// with the same ID return the existing instance without re-configuring.
+///
+/// @param[in] id   Encoder identifier.
+/// @param[in] i2c  I2C bus handle returned by I2COpen().
+/// @return Handle to the instance, or NULL if @p id is out of range.
+RotaryEncoderRef REOpen( RotaryEncoderID id, I2CRef i2c );
+
+/// @brief Return a handle to a previously opened encoder instance without re-initialising.
+/// @param[in] id Encoder identifier.
+/// @return Handle, or NULL if @p id has not been opened yet or is out of range.
+RotaryEncoderRef REGetRef( RotaryEncoderID id );
 
 /// @brief Return the most recently computed rotational velocity.
 /// @param[in] encoder Handle returned by REOpen().
