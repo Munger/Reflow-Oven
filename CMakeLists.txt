@@ -44,30 +44,30 @@ add_subdirectory(cmake/stm32cubemx)
 # 3. TARGET SOURCES
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # User Application Sources
-    Core/Src/API/APICore.c
-    Core/Src/API/APICodec.c
-    Core/Src/API/APIHandlers.c
-    Core/Src/Drivers/Interrupts.c
-    Core/Src/Drivers/I2CManager.c
-    Core/Src/Drivers/SPIManager.c
-    Core/Src/Drivers/Buzzer.c
-    Core/Src/Drivers/DCFan.c
-    Core/Src/Drivers/Flash.c
-    Core/Src/Drivers/MCU.c
-    Core/Src/Drivers/PowerManager.c
-    Core/Src/Drivers/RotaryEncoder.c
-    Core/Src/Drivers/Thermistor.c
-    Core/Src/Drivers/ThermistorI2C.c
-    Core/Src/Drivers/Thermocouple.c
-    Core/Src/Drivers/Triac.c
-    Core/Src/Drivers/USBPowerDelivery.c
-    Core/Src/Tasks/APITask.c
-    Core/Src/Tasks/DeviceTask.c
-    Core/Src/Tasks/LoggingTask.c
-    Core/Src/Tasks/ManagerTask.c
-    Core/Src/Tasks/USBPDTask.c
-    Core/Src/Tasks/TaskUtils.c
-    Core/Src/Tuning/ACFanTuning.c
+    Core/Modules/API/Src/APICore.c
+    Core/Modules/API/Src/APICodec.c
+    Core/Modules/API/Src/APIHandlers.c
+    Core/Modules/Drivers/Src/Interrupts.c
+    Core/Modules/Drivers/Src/I2CManager.c
+    Core/Modules/Drivers/Src/SPIManager.c
+    Core/Modules/Drivers/Src/Buzzer.c
+    Core/Modules/Drivers/Src/DCFan.c
+    Core/Modules/Drivers/Src/Flash.c
+    Core/Modules/Drivers/Src/MCU.c
+    Core/Modules/Drivers/Src/PowerManager.c
+    Core/Modules/Drivers/Src/RotaryEncoder.c
+    Core/Modules/Drivers/Src/Thermistor.c
+    Core/Modules/Drivers/Src/ThermistorI2C.c
+    Core/Modules/Drivers/Src/Thermocouple.c
+    Core/Modules/Drivers/Src/Triac.c
+    Core/Modules/Drivers/Src/USBPowerDelivery.c
+    Core/Modules/Tasks/Src/APITask.c
+    Core/Modules/Tasks/Src/DeviceTask.c
+    Core/Modules/Tasks/Src/LoggingTask.c
+    Core/Modules/Tasks/Src/ManagerTask.c
+    Core/Modules/Tasks/Src/USBPDTask.c
+    Core/Modules/Tasks/Src/TaskUtils.c
+    Core/Modules/Tuning/Src/ACFanTuning.c
 
     # Add third-party source files directly to your target
     Middlewares/Third_Party/cJSON/cJSON.c
@@ -77,13 +77,14 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 
 # 4. INCLUDE DIRECTORIES
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    Core/Inc/API
-    Core/Inc/General
-    Core/Inc/Tasks
-    Core/Inc/Drivers
+    Core/Modules/API/Inc
+    Core/Modules/General/Inc
+    Core/Modules/Tasks/Inc
+    Core/Modules/Drivers/Inc
+    Core/Modules/Tuning/Inc
+    Core/Modules/FileSystem/Inc
     Middlewares/Third_Party/cJSON
     Middlewares/Third_Party/littlefs
-    Core/Src/Tuning
 )
 
 # 5. LINK LIBRARIES
