@@ -80,7 +80,6 @@ static volatile struct {
 static DCFanController boardFan;
 
 /// @brief Private event flag group for board fan status.
-/// @note Replaces the former public BoardFanStatusFlagsHandle extern.
 static osEventFlagsId_t boardFanStatus;
 
 static void FanI2CCallback( bool success );

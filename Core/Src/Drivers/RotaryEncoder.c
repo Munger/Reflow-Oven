@@ -33,7 +33,6 @@ static const uint8_t kRegStatus = 0x0BU; ///< Status register: bit5=MD, bit4=ML 
 static const Rpm kSpinningThresholdRpm = 100;
 
 /// @brief Private event flag group for oven fan / encoder status.
-/// @note Replaces the former public OvenFanStatusFlagsHandle extern.
 static osEventFlagsId_t ovenFanStatus;
 
 /// @brief Internal state machine states for the async I2C polling loop.

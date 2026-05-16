@@ -20,8 +20,8 @@
 #include "SystemStatusFlags.h"
 
 /// @brief Granular status and fault bit positions for the Power Manager.
-/// These map 1:1 to the bits in the private pmStatus shadow word and are
-/// mirrored into PowerManagerStatusFlagsHandle by PMProcess().
+/// These map 1:1 to the bits in the private pmStatus shadow word,
+/// returned by PMGetStatus().
 typedef enum {
     FlagPMStatusReady = 0,       ///< Power manager initialised and running
 

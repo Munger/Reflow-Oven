@@ -21,7 +21,6 @@
 #include "Buzzer.h"
 
 /// @brief Private event flag group for buzzer module status.
-/// @note Replaces the former public BuzzerStatusFlagsHandle extern.
 static osEventFlagsId_t buzzerStatus;
 
 /// @brief Internal sequencer state — tracks progress through the active melody.

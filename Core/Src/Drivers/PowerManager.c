@@ -4,10 +4,9 @@
 ///
 /// Uses a 32-bit shadow word (pmStatus) as the source of truth for all power
 /// state rather than re-reading GPIOs on every getter call. PMProcess() reconciles
-/// the shadow against observed hardware state, computes derived fault conditions,
-/// and mirrors pmStatus into PowerManagerStatusFlagsHandle. The ZCD and E-Stop
-/// ISR handlers write only to pmStatus and the last-ZCD tick — they never call
-/// FreeRTOS blocking APIs or drive FaultFlagsHandle directly.
+/// the shadow against observed hardware state and computes derived fault conditions.
+/// The ZCD and E-Stop ISR handlers write only to pmStatus and the last-ZCD tick —
+/// they never call FreeRTOS blocking APIs or drive FaultFlagsHandle directly.
 ///
 /// @copyright Copyright (c) 2026 Tim Hosking
 /// @see https://github.com/munger
@@ -19,7 +18,6 @@
 #include "PowerManager.h"
 
 /// @brief Private event flag group for power manager status.
-/// @note Replaces the former public PowerManagerStatusFlagsHandle extern.
 static osEventFlagsId_t powerManagerStatus;
 
 /// @brief Shadow word holding the current logical power state.

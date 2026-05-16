@@ -132,76 +132,6 @@ osEventFlagsId_t ReflowStatusFlagsHandle;
 const osEventFlagsAttr_t ReflowStatusFlags_attributes = {
   .name = "ReflowStatusFlags"
 };
-/* Definitions for Thermocouple1StatusFlags */
-osEventFlagsId_t Thermocouple1StatusFlagsHandle;
-const osEventFlagsAttr_t Thermocouple1StatusFlags_attributes = {
-  .name = "Thermocouple1StatusFlags"
-};
-/* Definitions for Thermocouple2StatusFlags */
-osEventFlagsId_t Thermocouple2StatusFlagsHandle;
-const osEventFlagsAttr_t Thermocouple2StatusFlags_attributes = {
-  .name = "Thermocouple2StatusFlags"
-};
-/* Definitions for ThermistorCJT1StatusFlags */
-osEventFlagsId_t ThermistorCJT1StatusFlagsHandle;
-const osEventFlagsAttr_t ThermistorCJT1StatusFlags_attributes = {
-  .name = "ThermistorCJT1StatusFlags"
-};
-/* Definitions for ThermistorCJT2StatusFlags */
-osEventFlagsId_t ThermistorCJT2StatusFlagsHandle;
-const osEventFlagsAttr_t ThermistorCJT2StatusFlags_attributes = {
-  .name = "ThermistorCJT2StatusFlags"
-};
-/* Definitions for ThermistorOvenStatusFlags */
-osEventFlagsId_t ThermistorOvenStatusFlagsHandle;
-const osEventFlagsAttr_t ThermistorOvenStatusFlags_attributes = {
-  .name = "ThermistorOvenStatusFlags"
-};
-/* Definitions for ThermistorHeatsinkStatusFlags */
-osEventFlagsId_t ThermistorHeatsinkStatusFlagsHandle;
-const osEventFlagsAttr_t ThermistorHeatsinkStatusFlags_attributes = {
-  .name = "ThermistorHeatsinkStatusFlags"
-};
-/* Definitions for OvenFanStatusFlags */
-osEventFlagsId_t OvenFanStatusFlagsHandle;
-const osEventFlagsAttr_t OvenFanStatusFlags_attributes = {
-  .name = "OvenFanStatusFlags"
-};
-/* Definitions for BoardFanStatusFlags */
-osEventFlagsId_t BoardFanStatusFlagsHandle;
-const osEventFlagsAttr_t BoardFanStatusFlags_attributes = {
-  .name = "BoardFanStatusFlags"
-};
-/* Definitions for BuzzerStatusFlags */
-osEventFlagsId_t BuzzerStatusFlagsHandle;
-const osEventFlagsAttr_t BuzzerStatusFlags_attributes = {
-  .name = "BuzzerStatusFlags"
-};
-/* Definitions for PowerManagerStatusFlags */
-osEventFlagsId_t PowerManagerStatusFlagsHandle;
-const osEventFlagsAttr_t PowerManagerStatusFlags_attributes = {
-  .name = "PowerManagerStatusFlags"
-};
-/* Definitions for I2CStatusFlags */
-osEventFlagsId_t I2CStatusFlagsHandle;
-const osEventFlagsAttr_t I2CStatusFlags_attributes = {
-  .name = "I2CStatusFlags"
-};
-/* Definitions for SPIStatusFlags */
-osEventFlagsId_t SPIStatusFlagsHandle;
-const osEventFlagsAttr_t SPIStatusFlags_attributes = {
-  .name = "SPIStatusFlags"
-};
-/* Definitions for MCUStatusFlags */
-osEventFlagsId_t MCUStatusFlagsHandle;
-const osEventFlagsAttr_t MCUStatusFlags_attributes = {
-  .name = "MCUStatusFlags"
-};
-/* Definitions for TriacHTopStatusFlags */
-osEventFlagsId_t TriacHTopStatusFlagsHandle;
-const osEventFlagsAttr_t TriacHTopStatusFlags_attributes = {
-  .name = "TriacHTopStatusFlags"
-};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -297,48 +227,6 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of ReflowStatusFlags */
   ReflowStatusFlagsHandle = osEventFlagsNew(&ReflowStatusFlags_attributes);
-
-  /* creation of Thermocouple1StatusFlags */
-  Thermocouple1StatusFlagsHandle = osEventFlagsNew(&Thermocouple1StatusFlags_attributes);
-
-  /* creation of Thermocouple2StatusFlags */
-  Thermocouple2StatusFlagsHandle = osEventFlagsNew(&Thermocouple2StatusFlags_attributes);
-
-  /* creation of ThermistorCJT1StatusFlags */
-  ThermistorCJT1StatusFlagsHandle = osEventFlagsNew(&ThermistorCJT1StatusFlags_attributes);
-
-  /* creation of ThermistorCJT2StatusFlags */
-  ThermistorCJT2StatusFlagsHandle = osEventFlagsNew(&ThermistorCJT2StatusFlags_attributes);
-
-  /* creation of ThermistorOvenStatusFlags */
-  ThermistorOvenStatusFlagsHandle = osEventFlagsNew(&ThermistorOvenStatusFlags_attributes);
-
-  /* creation of ThermistorHeatsinkStatusFlags */
-  ThermistorHeatsinkStatusFlagsHandle = osEventFlagsNew(&ThermistorHeatsinkStatusFlags_attributes);
-
-  /* creation of OvenFanStatusFlags */
-  OvenFanStatusFlagsHandle = osEventFlagsNew(&OvenFanStatusFlags_attributes);
-
-  /* creation of BoardFanStatusFlags */
-  BoardFanStatusFlagsHandle = osEventFlagsNew(&BoardFanStatusFlags_attributes);
-
-  /* creation of BuzzerStatusFlags */
-  BuzzerStatusFlagsHandle = osEventFlagsNew(&BuzzerStatusFlags_attributes);
-
-  /* creation of PowerManagerStatusFlags */
-  PowerManagerStatusFlagsHandle = osEventFlagsNew(&PowerManagerStatusFlags_attributes);
-
-  /* creation of I2CStatusFlags */
-  I2CStatusFlagsHandle = osEventFlagsNew(&I2CStatusFlags_attributes);
-
-  /* creation of SPIStatusFlags */
-  SPIStatusFlagsHandle = osEventFlagsNew(&SPIStatusFlags_attributes);
-
-  /* creation of MCUStatusFlags */
-  MCUStatusFlagsHandle = osEventFlagsNew(&MCUStatusFlags_attributes);
-
-  /* creation of TriacHTopStatusFlags */
-  TriacHTopStatusFlagsHandle = osEventFlagsNew(&TriacHTopStatusFlags_attributes);
 
   /* USER CODE BEGIN RTOS_EVENTS */
     /* add events, ... */
