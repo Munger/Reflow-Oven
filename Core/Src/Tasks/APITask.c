@@ -1,56 +1,85 @@
+/// @file APITask.c
+///
+/// @brief USB REST API task — request dispatch and transmit pipeline implementation.
+///
+/// Waits for task notifications from the USB ISR (new data received or TX complete)
+/// and the API core (request enqueued). Dispatches requests to registered route
+/// handlers, serialises responses into APIBuffer chains, and drives the CDC
+/// transmit pipeline. The USBSendAll() helper is called after each request batch
+/// and on every TX-done notification to keep the pipeline drained.
+///
+/// @copyright Copyright (c) 2026 Tim Hosking
+/// @see https://github.com/munger
+/// @par Licence: MIT
+
 #include "FreeRTOS.h"
 #include "task.h"
 #include "cmsis_os2.h"
 
-#include "apicore.h"
-#include "apiroutes.h"
-#include "apihandlers.h"
-#include "apicodec.h"
+#include "SystemStatusFlags.h"
+#include "APICore.h"
+#include "APIRoutes.h"
+#include "APIHandlers.h"
+#include "APICodec.h"
 #include "usbd_cdc_if.h"
 #include "APITask.h"
 
-// Private state for the USB transmission machine
+/// @brief Pointer to the APIBuffer currently being transmitted over USB.
+///
+/// Non-NULL while a CDC_Transmit_FS() call is in flight. The USB ISR clears
+/// this via USBTxDoneHandler() once the hardware confirms completion.
 static APIBufferPtr currentUSBBuffer = NULL;
 
-// Sends all pending buffers over USB. Called after processing a batch of requests or when a USB Tx completes.
-// If the USB is busy, it sets a notification to try again when the current transmission finishes.
 static void USBSendAll( void );
 
-// Initialises the APITask and related modules. Called by app_freertos.c at startup.
+/// @brief Initialise the API task — waits for system init then starts API subsystems.
+///
+/// Blocks on FlagSystemInitialised to ensure all drivers are ready before
+/// accepting USB requests. Initialises the API core pool and stream parser.
+/// Called once by app_freertos.c at startup.
 void APITaskInit( void ) {
+    osEventFlagsWait( SystemStatusFlagsHandle, BIT( FlagSystemInitialised ), osFlagsWaitAll | osFlagsNoClear, osWaitForever );
     APICoreInit();
     APIStreamInit();
 }
 
-// Main loop for the APITask. Waits for notifications of incoming requests or completed
-// USB transmissions, processes requests, and sends responses.
-// Called by app_freertos.c in the main task loop.
+/// @brief API task main loop body — processes requests and drives the transmit queue.
+///
+/// Blocks on xTaskNotifyWait() until woken by a USB receive, TX complete, or
+/// APICore request-enqueue notification. Drains the input queue, dispatches each
+/// request to its route handler, and calls USBSendAll() to flush any pending output.
+///
+/// Called repeatedly by app_freertos.c in the task's infinite loop.
 void APITaskLoop( void ) {
     uint32_t notification;
-    
-    // xTaskNotifyWait is a FreeRTOS function, portMAX_DELAY is a FreeRTOS constant
+
     xTaskNotifyWait( 0, 0xFFFFFFFF, &notification, portMAX_DELAY );
 
     APIPBPtr req;
     while ( ( req = GetNextRequest() ) != NULL ) {
-        APIPB resp = { 0 }; 
+        APIPB resp = { 0 };
         resp.origin = req->origin;
         resp.route  = req->route;
 
         if ( req->route && req->route->handler ) {
-            // Handler owns req and must ReleasePB(req)
+            // Handler owns req and must call ReleasePB(req) before returning
             resp.payload = req->route->handler( req );
         }
 
         if ( resp.payload ) {
-            APIQueueForSend( &resp ); 
+            APIQueueForSend( &resp );
         }
     }
     USBSendAll();
 }
 
-// Sends all pending buffers over USB. Called after processing a batch of requests or when a USB Tx completes.
-// If the USB is busy, it sets a notification to try again when the current transmission finishes.
+/// @brief Drain the output queue and push the next buffer to CDC_Transmit_FS().
+///
+/// If a transmission is already in progress, attempts to chain the next buffer
+/// immediately rather than waiting for a TX-done notification. If the CDC layer
+/// is busy, sets a notification so the task retries on the next wake.
+///
+/// @note Reentrant from task context only. Not safe to call from ISR.
 static void USBSendAll( void ) {
     if ( currentUSBBuffer != NULL ) {
         if ( currentUSBBuffer->next != NULL ) {
@@ -74,6 +103,13 @@ static void USBSendAll( void ) {
     }
 }
 
+/// @brief USB CDC TX-complete callback — advances or closes the transmit pipeline.
+///
+/// Releases the completed buffer. If a next link is available in the chain,
+/// starts it immediately via CDC_Transmit_FS(). Otherwise resets currentUSBBuffer
+/// to NULL and wakes the API task so it can dequeue the next buffer.
+///
+/// @warning Called from USB ISR context. Uses FromISR notification variants only.
 void USBTxDoneHandler( void ) {
     APIBufferPtr finished = currentUSBBuffer;
 

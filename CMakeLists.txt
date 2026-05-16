@@ -44,28 +44,28 @@ add_subdirectory(cmake/stm32cubemx)
 # 3. TARGET SOURCES
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # User Application Sources
-    Core/Src/api/apicore.c
-    Core/Src/api/apicodec.c
-    Core/Src/api/apihandlers.c
-    Core/Src/Drivers/interrupts.c
+    Core/Src/API/APICore.c
+    Core/Src/API/APICodec.c
+    Core/Src/API/APIHandlers.c
+    Core/Src/Drivers/Interrupts.c
     Core/Src/Drivers/I2CManager.c
     Core/Src/Drivers/SPIManager.c
-    Core/Src/Drivers/buzzer.c
-    Core/Src/Drivers/dcfan.c
-    Core/Src/Drivers/mcu.c
-    Core/Src/Drivers/powermanager.c
-    Core/Src/Drivers/rotaryencoder.c
-    Core/Src/Drivers/thermistor.c
-    Core/Src/Drivers/thermistori2c.c
-    Core/Src/Drivers/thermocouple.c
-    Core/Src/Drivers/triac.c
-    Core/Src/Drivers/usbpowerdelivery.c
+    Core/Src/Drivers/Buzzer.c
+    Core/Src/Drivers/DCFan.c
+    Core/Src/Drivers/MCU.c
+    Core/Src/Drivers/PowerManager.c
+    Core/Src/Drivers/RotaryEncoder.c
+    Core/Src/Drivers/Thermistor.c
+    Core/Src/Drivers/ThermistorI2C.c
+    Core/Src/Drivers/Thermocouple.c
+    Core/Src/Drivers/Triac.c
+    Core/Src/Drivers/USBPowerDelivery.c
     Core/Src/Tasks/APITask.c
     Core/Src/Tasks/DeviceTask.c
     Core/Src/Tasks/LoggingTask.c
     Core/Src/Tasks/ManagerTask.c
     Core/Src/Tasks/USBPDTask.c
-    Core/Src/Tasks/taskutils.c
+    Core/Src/Tasks/TaskUtils.c
     Core/Src/Tuning/ACFanTuning.c
 
     # Add third-party source files directly to your target
@@ -76,7 +76,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 
 # 4. INCLUDE DIRECTORIES
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    Core/Inc/api
+    Core/Inc/API
     Core/Inc/General
     Core/Inc/Tasks
     Core/Inc/Drivers

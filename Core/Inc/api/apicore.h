@@ -1,88 +1,115 @@
+/// @file APICore.h
+///
+/// @brief API engine public interface — pool allocators, queue accessors, and diagnostics.
+///
+/// All allocation and queue operations are protected by FreeRTOS critical sections
+/// and are safe to call from any task or ISR context. Pool storage is statically
+/// allocated; there is no heap usage in the API subsystem.
+///
+/// @copyright Copyright (c) 2026 Tim Hosking
+/// @see https://github.com/munger
+/// @par Licence: MIT
+
 #ifndef APICORE_H
 #define APICORE_H
 
 #include <stdint.h>
 
-#include "apitypes.h"
+#include "APITypes.h"
 
-/* Specific Opaque Handles - The compiler treats these as unique types */
+/// @brief Opaque handle to an APIPBQueue — prevents direct struct access outside APICore.c.
 typedef struct APIPBQueue*     APIPBQueueRef;
+
+/// @brief Opaque handle to an APIBufferQueue — prevents direct struct access outside APICore.c.
 typedef struct APIBufferQueue* APIBufferQueueRef;
 
-// Initialises the pools and queues. Call once at startup.
+/// @brief Initialise pools and queues. Call once at startup before any other APICore function.
 void                           APICoreInit( void );
 
-// Requests received from the transport layer are enqueued here for processing
-// by the main loop
+/// @brief Return the input queue — received requests awaiting dispatch.
 APIPBQueueRef                  GetInputQueue( void );
-// Completed requests are enqueued here for the transport layer to send back to
-// the host
+
+/// @brief Return the output queue — serialised responses awaiting transmission.
 APIBufferQueueRef              GetOutputQueue( void );
 
-// Grab an APIPB from the pool
+/// @brief Acquire a zeroed APIPB from the pool.
+/// @return Pointer to a clean APIPB, or NULL if the pool is exhausted.
 APIPBPtr                       AcquirePB( void );
 
-// Return an APIPB to the pool
+/// @brief Release an APIPB and all attached Payload nodes back to their pools.
+/// @param[in] pb  APIPB to release; ignores NULL.
 void                           ReleasePB( APIPBPtr pb );
 
-// Enqueue a completed APIPB to the specified queue
+/// @brief Append an APIPB to the tail of @p q; notifies the API task if q is the input queue.
+/// @param[in] q   Target queue.
+/// @param[in] pb  APIPB to enqueue.
 void                           EnqueuePB( APIPBQueueRef q, APIPBPtr pb );
 
-// Dequeue a completed APIPB from the specified queue, or NULL if empty
+/// @brief Remove and return the APIPB at the head of @p q, or NULL if empty.
+/// @param[in] q  Source queue.
+/// @return Oldest queued APIPB, or NULL.
 APIPBPtr                       DequeuePB( APIPBQueueRef q );
 
-// Enqueue a completed APIBuffer to the specified queue
+/// @brief Append an APIBuffer chain to the tail of @p q; notifies the API task if q is the output queue.
+/// @param[in] q   Target queue.
+/// @param[in] pb  Head of the APIBuffer chain to enqueue.
 void                           EnqueueBuffer( APIBufferQueueRef q, APIBufferPtr pb );
 
-// Dequeue a completed APIPB from the specified queue, or NULL if empty
+/// @brief Remove and return the APIBuffer at the head of @p q, or NULL if empty.
+/// @param[in] q  Source queue.
+/// @return Oldest queued APIBuffer, or NULL.
 APIBufferPtr                   DequeueBuffer( APIBufferQueueRef q );
 
-// Grab a payload from the pool
+/// @brief Acquire a Payload node from the pool.
+/// @return Pointer to a Payload, or NULL if the pool is exhausted.
 PayloadPtr                     AcquirePayload( void );
 
-// Return a payload to the pool
+/// @brief Return a Payload node to the pool after zeroing its data array.
+/// @param[in] payload  Payload to release; ignores NULL.
 void                           ReleasePayload( PayloadPtr payload );
 
-// Recycle the tokens and payloads attached to a PB (stack or pool)
+/// @brief Release all Payload nodes attached to @p pb without returning the PB itself.
+/// @param[in] pb  APIPB whose payload chain should be freed; ignores NULL.
 void                           ReleasePBMembers( APIPBPtr pb );
 
-// Grab a buffer from the pool
+/// @brief Acquire a transmit APIBuffer from the pool.
+/// @return Pointer to a free APIBuffer, or NULL if the pool is exhausted.
 APIBufferPtr                   AcquireBuffer( void );
 
-// Return a buffer to the pool
+/// @brief Return a transmit APIBuffer to the pool after zeroing its data and resetting length.
+/// @param[in] buffer  Buffer to release; ignores NULL.
 void                           ReleaseBuffer( APIBufferPtr buffer );
 
-// Stats for debugging and monitoring
+/// @brief Live diagnostics snapshot for the API memory engine.
 typedef struct APICoreStats {
-    // Current counts
-    uint32_t pbFree;
-    uint32_t payloadFree;
-    uint32_t bufferFree;
-    uint32_t inputQueued;
-    uint32_t outputQueued;
+    uint32_t pbFree;         ///< APIPB nodes currently in the free pool.
+    uint32_t payloadFree;    ///< Payload nodes currently in the free pool.
+    uint32_t bufferFree;     ///< APIBuffer nodes currently in the free pool.
+    uint32_t inputQueued;    ///< Requests currently waiting in the input queue.
+    uint32_t outputQueued;   ///< Response buffers currently waiting in the output queue.
 
-    // High-water marks (peak usage)
-    uint32_t pbPeak;
-    uint32_t payloadPeak;
-    uint32_t bufferPeak;
+    uint32_t pbPeak;         ///< Peak simultaneous APIPB nodes in use (high-water mark).
+    uint32_t payloadPeak;    ///< Peak simultaneous Payload nodes in use (high-water mark).
+    uint32_t bufferPeak;     ///< Peak simultaneous APIBuffer nodes in use (high-water mark).
 
-    // Static sizing
-    uint32_t pbCount;
-    uint32_t payloadCount;
-    uint32_t bufferCount;
+    uint32_t pbCount;        ///< Total APIPB pool capacity.
+    uint32_t payloadCount;   ///< Total Payload pool capacity.
+    uint32_t bufferCount;    ///< Total APIBuffer pool capacity.
 
-    size_t   pbSize;
-    size_t   payloadSize;
-    size_t   bufferSize;
+    size_t   pbSize;         ///< Size in bytes of one APIPB.
+    size_t   payloadSize;    ///< Size in bytes of one Payload.
+    size_t   bufferSize;     ///< Size in bytes of one APIBuffer.
 
-    // Total memory in use for each entity
-    size_t   pbMemUsed;
-    size_t   payloadMemUsed;
-    size_t   bufferMemUsed;
+    size_t   pbMemUsed;      ///< Total bytes currently in use for APIPBs.
+    size_t   payloadMemUsed; ///< Total bytes currently in use for Payloads.
+    size_t   bufferMemUsed;  ///< Total bytes currently in use for APIBuffers.
 } APICoreStats;
 
+/// @brief Read-only pointer to the internal APICoreStats snapshot.
 typedef const APICoreStats* APICoreStatsRef;
 
+/// @brief Refresh and return a snapshot of the current API engine statistics.
+/// @return Read-only pointer to the internal APICoreStats; valid until next APICoreInit().
 APICoreStatsRef             APICoreGetStats( void );
 
 #endif // APICORE_H

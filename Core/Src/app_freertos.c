@@ -390,10 +390,9 @@ void StartManagerTask(void *argument)
   /* init code for USB_Device */
   MX_USB_Device_Init();
   /* USER CODE BEGIN StartManagerTask */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
+  ManagerTaskInit();
+  for(;;){
+    ManagerTaskLoop();
   }
   /* USER CODE END StartManagerTask */
 }

@@ -1,41 +1,64 @@
+/// @file ThermistorI2C.h
+///
+/// @brief MCP3221 I2C ADC heatsink thermistor driver.
+///
+/// Reads a 12-bit ADC value from an MCP3221 over I2C and converts it to a
+/// temperature using a linear approximation. TMI2CProcess() drives the async
+/// I2C state machine and updates status flags; getters return cached values
+/// safe to call from any task context.
+///
+/// @copyright Copyright (c) 2026 Tim Hosking
+/// @see https://github.com/munger
+/// @par Licence: MIT
+
 #ifndef THERMISTORI2C_H
 #define THERMISTORI2C_H
 
-#include "types.h"
+#include "Types.h"
 #include "SystemStatusFlags.h"
 
+/// @brief Status and diagnostic flag bit positions for the I2C heatsink thermistor.
+/// These map 1:1 to the bits in the private heatsinkStatus event flag group.
 typedef enum {
-    FlagTMI2CStatusReady = 0,         // Module initialised and communicating
-    FlagTMI2CStatusOverTemp,          // Heatsink temperature exceeds safety limit
-    FlagTMI2CStatusOpenCircuit,       // Thermistor probe disconnected (Input pulled to GND)
-    FlagTMI2CStatusShortCircuit,      // Thermistor shorted (Input pulled to VCC)
-    FlagTMI2CStatusHardwareFault,     // I2C communication failure (No ACK/Timeout)
-    
+    FlagTMI2CStatusReady = 0,          ///< Module initialised and I2C communication successful
+    FlagTMI2CStatusOverTemp,            ///< Heatsink temperature exceeds the 95°C safety limit
+    FlagTMI2CStatusOpenCircuit,         ///< ADC reading near maximum — thermistor probe disconnected
+    FlagTMI2CStatusShortCircuit,        ///< ADC reading near zero — thermistor probe shorted
+    FlagTMI2CStatusHardwareFault,       ///< I2C communication failure (NACK or timeout)
+
     TMI2CFlagsCount
 } TMI2CStatusBit;
 
-extern osEventFlagsId_t ThermistorHeatsinkStatusFlagsHandle;
-
 _Static_assert( TMI2CFlagsCount <= 24, "ThermistorHeatsinkStatusFlags out of bounds" );
 
+/// @brief Opaque handle to the heatsink thermistor instance.
 typedef struct ThermistorI2C* ThermistorI2CRef;
 
-// Initialises the I2C thermistor module (MCP3221).
+/// @brief Initialise the MCP3221 module and create the private status flag group.
 void TMI2CInitModule( void );
 
-// Open a handle to the heatsink thermistor.
+/// @brief Return a handle to the singleton heatsink thermistor instance.
+/// @return Always returns a valid non-NULL reference.
 ThermistorI2CRef TMI2COpen( void );
 
-// Retrieve the processed temperature in milli-degrees Celsius.
+/// @brief Return the most recently computed heatsink temperature.
+/// @param[in] thermistor Handle returned by TMI2COpen().
+/// @return Temperature in milli-degrees Celsius; 0 if @p thermistor is NULL.
+/// @note Returns a cached value; safe to call from any task context.
 Temperature TMI2CGetTemperature( ThermistorI2CRef thermistor );
 
-// Returns the raw 12-bit ADC value from the MCP3221.
+/// @brief Return the most recently read raw 12-bit ADC value from the MCP3221.
+/// @param[in] thermistor Handle returned by TMI2COpen().
+/// @return Raw ADC value (0–4095); 0 if @p thermistor is NULL.
+/// @note Returns a cached value; safe to call from any task context.
 AdcRaw TMI2CGetRaw( ThermistorI2CRef thermistor );
 
-// Returns the current bitmask of heatsink status and health flags.
+/// @brief Return the full status bitmask from the private heatsinkStatus flags.
+/// @return Bitmask of TMI2CStatusBit flags; safe to call from any task context.
 uint32_t TMI2CGetStatus( void );
 
-// Called from task loop to drive the I2C state machine and update flags.
+/// @brief Drive the I2C state machine, evaluate fault thresholds, and update status flags.
+/// @warning All I2C hardware access occurs here. Do not call from ISR context.
 void TMI2CProcess( void );
 
 #endif // THERMISTORI2C_H

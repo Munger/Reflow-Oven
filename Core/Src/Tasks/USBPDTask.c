@@ -1,17 +1,23 @@
+/// @file USBPDTask.c
+///
+/// @brief USBPD task — intentional hollow placeholder.
+///
+/// This task stub is a CubeMX-generated thread kept for future use.
+/// USBPD initialisation and processing are handled by ManagerTask and
+/// DeviceTask respectively. This task blocks indefinitely and performs no work.
+///
+/// @copyright Copyright (c) 2026 Tim Hosking
+/// @see https://github.com/munger
+/// @par Licence: MIT
+
 #include "USBPDTask.h"
-#include "usbpowerdelivery.h"
 
-
-// Initialises the USBPDTask and related modules. Called by app_freertos.c at startup.
+/// @brief No-op initialiser for the USBPD placeholder task.
 void USBPDTaskInit( void ) {
-    USBPDInitModule();
 }
 
-// Main loop for the USBPDTask.
-// Called by app_freertos.c in the main task loop.
+/// @brief USBPD placeholder task loop — blocks indefinitely.
+/// @note Intentionally empty. All USBPD work is done in DeviceTaskLoop().
 void USBPDTaskLoop( void ) {
-    // Poll the MAINS_PWR_N pin and manage roles
-    USBPDProcess();
-    osDelay( 10 );
+    osDelay( portMAX_DELAY );
 }
-

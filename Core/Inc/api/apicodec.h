@@ -1,19 +1,47 @@
-#ifndef APISTREAM_H
-#define APISTREAM_H
+/// @file APICodec.h
+///
+/// @brief USB stream parser and response serialiser — public interface.
+///
+/// ProcessStream() is called directly from the CDC_Receive_FS() USB ISR with each
+/// raw receive buffer. APIQueueForSend() serialises a completed APIPB response and
+/// enqueues the result for CDC transmission.
+///
+/// @copyright Copyright (c) 2026 Tim Hosking
+/// @see https://github.com/munger
+/// @par Licence: MIT
+
+#ifndef APICODEC_H
+#define APICODEC_H
 
 #include <stdint.h>
 
-#include "apitypes.h"
+#include "APITypes.h"
 
+/// @brief Initialise (or reset) the incremental stream parser. Call once at startup.
 void     APIStreamInit( void );
 
-// Called directly by the USB ISR (CDC_Receive_FS) with whatever data arrived
+/// @brief Consume a raw CDC receive buffer and advance the parser state machine.
+///
+/// May be called from ISR context (CDC_Receive_FS). Assembles complete APIPB
+/// requests and enqueues them on the input queue, notifying the API task.
+///
+/// @param[in] data  Received bytes.
+/// @param[in] len   Number of bytes in @p data.
 void     ProcessStream( const uint8_t* data, uint32_t len );
 
-// Fetch the next complete request, or NULL if none available.
-// Caller must return the PB to the pool when done with ReleasePB()
+/// @brief Dequeue the next complete parsed request, or NULL if none are available.
+///
+/// The caller takes ownership and must return the PB with ReleasePB() when done.
+///
+/// @return Pointer to the oldest queued APIPB, or NULL.
 APIPBPtr GetNextRequest( void );
 
+/// @brief Serialise a completed APIPB response and enqueue it for USB transmission.
+///
+/// Dispatches to JSON or CLI format based on pb->origin. Releases the payload
+/// chain; the caller is responsible for the PB itself.
+///
+/// @param[in] pb  Completed APIPB with status, origin, terminator, and optional payload set.
 void     APIQueueForSend( APIPBPtr pb );
 
-#endif // APISTREAM_H
+#endif // APICODEC_H
