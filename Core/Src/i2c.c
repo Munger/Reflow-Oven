@@ -22,6 +22,7 @@
 
 /* USER CODE BEGIN 0 */
 
+
 /* USER CODE END 0 */
 
 I2C_HandleTypeDef hi2c1;
@@ -65,7 +66,7 @@ void MX_I2C1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN I2C1_Init 2 */
-
+  
   /* USER CODE END I2C1_Init 2 */
 
 }

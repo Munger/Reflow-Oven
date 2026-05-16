@@ -2,33 +2,40 @@
 #define THERMISTORI2C_H
 
 #include "types.h"
+#include "SystemStatusFlags.h"
 
-// Status codes for the I2C-based thermistor validation.
 typedef enum {
-    TMI2CStatusOk = 0,
-    TMI2CStatusNoResponse, // I2C communication failure
-    TMI2CStatusOpenCircuit,
-    TMI2CStatusShortToGnd,
-    TMI2CStatusOutOfRange
-} ThermistorI2CStatus;
+    FlagTMI2CStatusReady = 0,         // Module initialised and communicating
+    FlagTMI2CStatusOverTemp,          // Heatsink temperature exceeds safety limit
+    FlagTMI2CStatusOpenCircuit,       // Thermistor probe disconnected (Input pulled to GND)
+    FlagTMI2CStatusShortCircuit,      // Thermistor shorted (Input pulled to VCC)
+    FlagTMI2CStatusHardwareFault,     // I2C communication failure (No ACK/Timeout)
+    
+    TMI2CFlagsCount
+} TMI2CStatusBit;
 
-// Opaque handle to an I2C thermistor instance.
+extern osEventFlagsId_t ThermistorHeatsinkStatusFlagsHandle;
+
+_Static_assert( TMI2CFlagsCount <= 24, "ThermistorHeatsinkStatusFlags out of bounds" );
+
 typedef struct ThermistorI2C* ThermistorI2CRef;
 
-// Initialise the I2C thermistor module (MCP3221).
-void                          TMI2CInitModule( void );
+// Initialises the I2C thermistor module (MCP3221).
+void TMI2CInitModule( void );
 
 // Open a handle to the heatsink thermistor.
-ThermistorI2CRef              TMI2COpen( void );
+ThermistorI2CRef TMI2COpen( void );
 
 // Retrieve the processed temperature in milli-degrees Celsius.
-// Accounts for the MCP3221 resolution and the specific parallel resistor network.
-Temperature                   TMI2CGetTemperature( ThermistorI2CRef thermistor );
+Temperature TMI2CGetTemperature( ThermistorI2CRef thermistor );
 
-// Retrieve the health and communication status.
-ThermistorI2CStatus           TMI2CGetStatus( ThermistorI2CRef thermistor );
+// Returns the raw 12-bit ADC value from the MCP3221.
+AdcRaw TMI2CGetRaw( ThermistorI2CRef thermistor );
 
-// Returns the raw 12-bit ADC value from the MCP3221 for debugging.
-AdcRaw                        TMI2CGetRaw( ThermistorI2CRef thermistor );
+// Returns the current bitmask of heatsink status and health flags.
+uint32_t TMI2CGetStatus( void );
+
+// Called from task loop to drive the I2C state machine and update flags.
+void TMI2CProcess( void );
 
 #endif // THERMISTORI2C_H

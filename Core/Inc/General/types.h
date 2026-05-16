@@ -33,4 +33,7 @@ typedef uint16_t Current;
 // Power in milliwatts. 1000 = 1W.
 typedef uint32_t Power;
 
+// Motor drive stress factor in centi-units (×100). 0 = no stress, 100000 = STRESS_FACTOR_MAX.
+typedef uint32_t StressFactor;
+
 #endif // TYPES_H

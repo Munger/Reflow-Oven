@@ -1,19 +1,18 @@
 #include <string.h>
-
+#include "platform.h"
 #include "main.h"
 #include "tim.h"
 #include "buzzer.h"
 
-// Volatile state for ISR safe access
+// Track the sequencer progress.
 static volatile struct {
     const Melody* currentMelody;
     uint8_t       currentIndex;
     uint32_t      remainingToggles; 
-    bool          isPlaying;
     bool          isRest;
-} state;
+} sequencer;
 
-// Internal storage for the level complete jingle
+// Sequences for system notifications.
 static const struct {
     uint8_t    length;
     BuzzerTone tones[ 31 ];
@@ -53,24 +52,32 @@ static const Melody* patterns[] = {
     ( const Melody* )&levelCompleteInternal
 };
 
+static void TimerHandler( TIM_HandleTypeDef *htim );
+
 void BuzzerInitModule( void ) {
-    memset( ( void* )&state, 0, sizeof( state ) );
-    // Gate High = P-MOS OFF
+    memset( ( void* )&sequencer, 0, sizeof( sequencer ) );
+    
+    BuzzerStatusFlagsHandle = osEventFlagsNew( NULL );
+
     HAL_GPIO_WritePin( BUZZER_EN_N_GPIO_Port, BUZZER_EN_N_Pin, GPIO_PIN_SET );
+    HAL_TIM_RegisterCallback( &htim7, HAL_TIM_PERIOD_ELAPSED_CB_ID, TimerHandler );
+    
+    // Internal ready flag only.
+    osEventFlagsSet( BuzzerStatusFlagsHandle, BIT( FlagBuzzerStatusReady ) );
+    // Signal system that hardware is initialized.
+    osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagBuzzerReady ) );
 }
 
 static void BuzzerPrepareNote( void ) {
-    const BuzzerTone* note = &state.currentMelody->tones[ state.currentIndex ];
+    const BuzzerTone* note = &sequencer.currentMelody->tones[ sequencer.currentIndex ];
     
     if ( note->tone == NoteRest ) {
-        state.isRest = true;
-        state.remainingToggles = note->durationMs / 10;
+        sequencer.isRest = true;
+        sequencer.remainingToggles = note->durationMs / 10;
         __HAL_TIM_SET_AUTORELOAD( &htim7, 10000 ); 
     } else {
-        state.isRest = false;
-        // Total toggles = ( Frequency * Duration ) / 500
-        state.remainingToggles = ( ( uint32_t )note->tone * note->durationMs ) / 500;
-        // Half-period ticks @ 1MHz
+        sequencer.isRest = false;
+        sequencer.remainingToggles = ( ( uint32_t )note->tone * note->durationMs ) / 500;
         uint32_t period = 500000 / ( uint32_t )note->tone;
         __HAL_TIM_SET_AUTORELOAD( &htim7, period );
     }
@@ -83,16 +90,19 @@ void BuzzerStart( BuzzerFrequency frequency ) {
         HAL_GPIO_WritePin( BUZZER_EN_N_GPIO_Port, BUZZER_EN_N_Pin, GPIO_PIN_SET );
         return;
     }
-    // Simple direct start logic if needed outside of PlayMelody
+    
     uint32_t period = 500000 / ( uint32_t )frequency;
     __HAL_TIM_SET_AUTORELOAD( &htim7, period );
+    
+    osEventFlagsSet( BuzzerStatusFlagsHandle, BIT( FlagBuzzerStatusActive ) );
     HAL_TIM_Base_Start_IT( &htim7 );
 }
 
 void BuzzerStop( void ) {
     HAL_TIM_Base_Stop_IT( &htim7 );
     HAL_GPIO_WritePin( BUZZER_EN_N_GPIO_Port, BUZZER_EN_N_Pin, GPIO_PIN_SET );
-    state.isPlaying = false;
+    
+    osEventFlagsClear( BuzzerStatusFlagsHandle, BIT( FlagBuzzerStatusActive ) );
 }
 
 void BuzzerPlay( const BuzzerPattern pattern ) {
@@ -102,32 +112,42 @@ void BuzzerPlay( const BuzzerPattern pattern ) {
 void BuzzerPlayMelody( const Melody* melody ) {
     if ( !melody || melody->length == 0 ) return;
 
-    state.currentMelody = melody;
-    state.currentIndex  = 0;
-    state.isPlaying     = true;
+    sequencer.currentMelody = melody;
+    sequencer.currentIndex  = 0;
 
     BuzzerPrepareNote();
+    
+    osEventFlagsSet( BuzzerStatusFlagsHandle, BIT( FlagBuzzerStatusActive ) );
     HAL_TIM_Base_Start_IT( &htim7 );
 }
 
 void BuzzerProcess( void ) {
-    if ( !state.isPlaying ) return;
+}   
 
-    if ( !state.isRest ) {
+static void TimerHandler( TIM_HandleTypeDef *htim ) {
+    UNUSED( htim );
+
+    uint32_t flags = osEventFlagsGet( BuzzerStatusFlagsHandle );
+    if ( !( flags & BIT( FlagBuzzerStatusActive ) ) ) return;
+
+    if ( !sequencer.isRest ) {
         HAL_GPIO_TogglePin( BUZZER_EN_N_GPIO_Port, BUZZER_EN_N_Pin );
     } else {
         HAL_GPIO_WritePin( BUZZER_EN_N_GPIO_Port, BUZZER_EN_N_Pin, GPIO_PIN_SET );
     }
 
-    if ( state.remainingToggles > 0 ) {
-        state.remainingToggles--;
+    if ( sequencer.remainingToggles > 0 ) {
+        sequencer.remainingToggles--;
     } else {
-        state.currentIndex++;
+        sequencer.currentIndex++;
         
-        if ( state.currentIndex < state.currentMelody->length ) {
+        if ( sequencer.currentIndex < sequencer.currentMelody->length ) {
             BuzzerPrepareNote();
         } else {
-            BuzzerStop();
+            HAL_TIM_Base_Stop_IT( &htim7 );
+            HAL_GPIO_WritePin( BUZZER_EN_N_GPIO_Port, BUZZER_EN_N_Pin, GPIO_PIN_SET );
+            
+            osEventFlagsClear( BuzzerStatusFlagsHandle, BIT( FlagBuzzerStatusActive ) );
         }
     }
 }

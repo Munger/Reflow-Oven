@@ -1,22 +1,21 @@
 #include <string.h>
-#include "thermistor.h"
+#include <stdlib.h>
 
-// Private DMA buffer hidden from the rest of the application.
-// Matches the 7 Ranks configured in CubeMX.
-static AdcRaw AdcDataBuffer[ 7 ];
+#include "thermistor.h"
+#include "adc.h"
+
+#define ADC_RANK_COUNT 7
+#define TABLE_SIZE     32
+
+AdcRaw AdcDataBuffer[ ADC_RANK_COUNT ];
 
 static ADC_HandleTypeDef* pAdcHandle = NULL;
 
-// ADC resolution constants for bitwise optimization (128 = 2^7)
 static const uint16_t AdcStepShift = 7;
 static const uint16_t AdcStepMask  = 127;
-
-// Health check thresholds
 static const uint16_t FaultMarginLow  = 50;
 static const uint16_t FaultMarginHigh = 4045;
 
-// Table for CJT1/CJT2 (B57861S0103F040 10k NTC, 5.6k Pull-down)
-// Configuration: VCC -> NTC -> [ADC] -> 5.6k -> GND
 static const Temperature CjtTable[] = {
     -40000, -25000, -14500, -6000,  1000,   7200,   13000,  18300, 
     23500,  28400,  33200,  37800,  42500,  47200,  51900,  56700, 
@@ -25,8 +24,6 @@ static const Temperature CjtTable[] = {
     330000
 };
 
-// Table for Oven (300C Oven NTC, 7.5k Pull-up)
-// Configuration: VCC -> 7.5k -> [ADC] -> NTC -> GND
 static const Temperature OvenTable[] = {
     300000, 285000, 270000, 256000, 242000, 229000, 216000, 204000,
     192000, 180000, 169000, 158000, 147000, 136000, 126000, 116000,
@@ -38,95 +35,117 @@ static const Temperature OvenTable[] = {
 typedef struct Thermistor {
     ThermistorID     id;
     uint8_t          bufferIndex;
-    ThermistorStatus status;
-    Temperature      lastTemp;
+    osEventFlagsId_t flags;
+    uint32_t         globalFaultBit;
 } Thermistor;
 
-static Thermistor instances[ 3 ];
+static Thermistor instances[ ThermistorCount ];
 
-// Called from MX_ADC1_Init() in adc.c to initialize the Thermistor module with the ADC handle and start the DMA sequence.
-void TMInitModule( ADC_HandleTypeDef* hadc ) {
-    if ( !hadc ) return;
-
-    pAdcHandle = hadc;
+void TMInitModule( void ) {
+    pAdcHandle = &ADC1Handle;
     memset( instances, 0, sizeof( instances ) );
 
-    // Map Thermistor IDs to DMA buffer indices based on ADC Rank order.
-    instances[ 0 ].id = ThermistorCJT1;
-    instances[ 0 ].bufferIndex = 0; // Rank 1: IN2
+    instances[ 0 ] = ( Thermistor ){ 
+        .id = ThermistorCJT1, 
+        .bufferIndex = 0, 
+        .flags = ThermistorCJT1StatusFlagsHandle,
+        .globalFaultBit = BIT( FlagThermistorCJT1Fault )
+    };
 
-    instances[ 1 ].id = ThermistorCJT2;
-    instances[ 1 ].bufferIndex = 1; // Rank 2: IN3
+    instances[ 1 ] = ( Thermistor ){ 
+        .id = ThermistorCJT2, 
+        .bufferIndex = 1, 
+        .flags = ThermistorCJT2StatusFlagsHandle,
+        .globalFaultBit = BIT( FlagThermistorCJT2Fault ) 
+    };
 
-    instances[ 2 ].id = ThermistorOven;
-    instances[ 2 ].bufferIndex = 2; // Rank 3: IN8
+    instances[ 2 ] = ( Thermistor ){ 
+        .id = ThermistorOven, 
+        .bufferIndex = 2, 
+        .flags = ThermistorOvenStatusFlagsHandle,
+        .globalFaultBit = BIT( FlagThermistorOvenFault )
+    };
 
-    for ( uint8_t i = 0; i < 3; i++ ) {
-        instances[ i ].status = TMStatusNoResponse;
-    }
+    osEventFlagsClear( ThermistorCJT1StatusFlagsHandle, 0xFFFFFF );
+    osEventFlagsClear( ThermistorCJT2StatusFlagsHandle, 0xFFFFFF );
+    osEventFlagsClear( ThermistorOvenStatusFlagsHandle, 0xFFFFFF );
 
-    // Start hardware sequence directly from the driver.
     HAL_ADCEx_Calibration_Start( pAdcHandle );
-    HAL_ADC_Start_DMA( pAdcHandle, (uint32_t*)AdcDataBuffer, pAdcHandle->Init.NbrOfConversion );
+    HAL_ADC_Start_DMA( pAdcHandle, ( uint32_t* )AdcDataBuffer, pAdcHandle->Init.NbrOfConversion );
 }
 
 ThermistorRef TMOpen( ThermistorID thermistorID ) {
-    for ( uint8_t i = 0; i < 3; i++ ) {
-        if ( instances[ i ].id == thermistorID ) return &instances[ i ];
-    }
-    return NULL;
+    if ( thermistorID >= ThermistorCount ) return NULL;
+    return &instances[ thermistorID ];
 }
 
 Temperature TMGetTemperature( ThermistorRef thermistor ) {
     if ( !thermistor ) return 0;
 
     AdcRaw raw = AdcDataBuffer[ thermistor->bufferIndex ];
-    const Temperature* table;
+    const Temperature* table = ( thermistor->id == ThermistorOven ) ? OvenTable : CjtTable;
 
-    // Logic for High-Side NTC (CJTs)
-    if ( thermistor->id != ThermistorOven ) {
-        if ( raw <= FaultMarginLow ) {
-            thermistor->status = TMStatusOpenCircuit;
-            return -999000;
-        }
-        if ( raw >= FaultMarginHigh ) {
-            thermistor->status = TMStatusShortToGnd;
-            return 999000;
-        }
-        table = CjtTable;
-    }
-    // Logic for Low-Side NTC (Oven)
-    else {
-        if ( raw >= FaultMarginHigh ) {
-            thermistor->status = TMStatusOpenCircuit;
-            return -999000;
-        }
-        if ( raw <= FaultMarginLow ) {
-            thermistor->status = TMStatusShortToGnd;
-            return 999000;
-        }
-        table = OvenTable;
-    }
-
-    thermistor->status = TMStatusOk;
-
-    // Linear interpolation using bitwise logic to avoid costly %.
     uint16_t index = raw >> AdcStepShift;
-    if ( index >= 32 ) index = 31;
+    if ( index >= TABLE_SIZE ) index = TABLE_SIZE - 1;
 
     uint16_t remainder = raw & AdcStepMask;
     Temperature y0 = table[ index ];
     Temperature y1 = table[ index + 1 ];
 
-    int32_t deltaY = (int32_t)y1 - (int32_t)y0;
-    
-    // Scale interpolation without division helper calls.
-    thermistor->lastTemp = y0 + ( ( deltaY * (int32_t)remainder ) >> AdcStepShift );
-
-    return thermistor->lastTemp;
+    int32_t deltaY = ( int32_t )y1 - ( int32_t )y0;
+    return y0 + ( ( deltaY * ( int32_t )remainder ) >> AdcStepShift );
 }
 
-ThermistorStatus TMGetStatus( ThermistorRef thermistor ) {
-    if ( !thermistor ) return TMStatusOutOfRange;
-    return thermistor->status;
+void TMProcess( void ) {
+    bool hwError = ( HAL_ADC_GetState( pAdcHandle ) & HAL_ADC_STATE_ERROR );
+
+    for ( uint8_t i = 0; i < ThermistorCount; i++ ) {
+        Thermistor* tm = &instances[ i ];
+        AdcRaw raw = AdcDataBuffer[ tm->bufferIndex ];
+        
+        uint32_t set = BIT( FlagTMStatusReady );
+        uint32_t clear = BIT( FlagTMStatusHardwareFault ) | BIT( FlagTMStatusOpenCircuit ) | BIT( FlagTMStatusShortCircuit );
+
+        if ( hwError ) {
+            set |= BIT( FlagTMStatusHardwareFault );
+        } else {
+            // Fault logic for the divider networks
+            if ( tm->id == ThermistorOven ) {
+                if ( raw >= FaultMarginHigh ) set |= BIT( FlagTMStatusOpenCircuit );
+                if ( raw <= FaultMarginLow )  set |= BIT( FlagTMStatusShortCircuit );
+            } else {
+                if ( raw <= FaultMarginLow )  set |= BIT( FlagTMStatusOpenCircuit );
+                if ( raw >= FaultMarginHigh ) set |= BIT( FlagTMStatusShortCircuit );
+            }
+        }
+
+        Temperature temp = TMGetTemperature( tm );
+        
+        // High/Low Plausibility Limits
+        if ( temp > 280000 ) {
+            set |= BIT( FlagTMStatusHighTemp );
+        } else {
+            clear |= BIT( FlagTMStatusHighTemp );
+        }
+
+        if ( temp < -30000 ) {
+            set |= BIT( FlagTMStatusLowTemp );
+        } else {
+            clear |= BIT( FlagTMStatusLowTemp );
+        }
+
+        osEventFlagsSet( tm->flags, set );
+        osEventFlagsClear( tm->flags, clear );
+
+        // Map to specific global fault bit
+        if ( ( set & ~BIT( FlagTMStatusReady ) ) != 0 ) {
+            osEventFlagsSet( FaultFlagsHandle, tm->globalFaultBit );
+        } else {
+            osEventFlagsClear( FaultFlagsHandle, tm->globalFaultBit );
+        }
+    }
+}
+
+uint32_t TMGetStatus( ThermistorRef thermistor ) {
+    return ( thermistor ) ? osEventFlagsGet( thermistor->flags ) : 0;
 }

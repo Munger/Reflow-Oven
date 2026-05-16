@@ -1,6 +1,7 @@
 #ifndef USBPOWERDELIVERY_H
 #define USBPOWERDELIVERY_H
 
+#include <stdint.h>
 #include "types.h"
 
 // Current power role of the USB-C port.
@@ -50,5 +51,9 @@ Current           USBPDGetLiveCurrent( void );
 
 // Background task to handle I2C telemetry from STPD01/TCPP03 and PD logic.
 void              USBPDProcess( void );
+
+// Interrupt handlers
+void USBPDHandleFLGNInterrupt( uint16_t GPIO_Pin );
+void USBPDHandleSourceInterrupt( uint16_t GPIO_Pin );
 
 #endif // USBPOWERDELIVERY_H

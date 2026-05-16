@@ -2,6 +2,7 @@
 #define BUZZER_H
 
 #include "types.h"
+#include "SystemStatusFlags.h"
 
 // Full chromatic scale for the buzzer's optimal frequency range.
 // Frequencies in Hz. 's' denotes Sharp (#).
@@ -35,6 +36,22 @@ typedef enum {
     BuzzerPatternLevelComplete
 } BuzzerPattern;
 
+// Fault and status codes specific to the Buzzer module logic.
+// These map 1:1 to the bits in BuzzerStatusFlagsHandle.
+typedef enum {
+    FlagBuzzerStatusReady = 0,   // Hardware/Timer initialised
+    FlagBuzzerStatusActive,      // Currently playing a note or melody
+    FlagBuzzerStatusMuted,       // Software mute active
+    FlagBuzzerStatusHardwareFault, // Placeholder for future diagnostic hardware
+
+    BuzzerFlagsCount
+} BuzzerStatusBit;
+
+// Individual handle for buzzer telemetry.
+extern osEventFlagsId_t BuzzerStatusFlagsHandle;
+
+_Static_assert( BuzzerFlagsCount <= 24, "BuzzerStatusFlags out of bounds" );
+
 typedef struct BuzzerTone {
     BuzzerFrequency tone;
     uint16_t        durationMs; // Duration to hold the note in milliseconds
@@ -60,7 +77,10 @@ void BuzzerPlay( const BuzzerPattern pattern );
 // Play a custom melody sequence asynchronously.
 void BuzzerPlayMelody( const Melody* melody );
 
-// Background task to handle note transitions and pattern timing.
+// Returns the full bitmask from the BuzzerStatusFlagsHandle.
+uint32_t BuzzerGetStatus( void );
+
+// Called from task loop to manage durations and sequences.
 void BuzzerProcess( void );
 
 #endif // BUZZER_H

@@ -24,8 +24,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
-#include "thermocouple.h"
-
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -62,8 +60,10 @@
 extern PCD_HandleTypeDef hpcd_USB_DRD_FS;
 extern DMA_HandleTypeDef hdma_adc1;
 extern UART_HandleTypeDef hlpuart2;
+extern SPI_HandleTypeDef hspi1;
 extern TIM_HandleTypeDef htim1;
 extern TIM_HandleTypeDef htim7;
+extern TIM_HandleTypeDef htim16;
 extern TIM_HandleTypeDef htim6;
 
 /* USER CODE BEGIN EV */
@@ -160,24 +160,12 @@ void EXTI4_15_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI4_15_IRQn 0 */
 
-  // Read the Rising Pending Register for the specific pins on Port B.
-  // This allows us to catch multiple events (e.g. both chips finishing at once).
-  uint32_t pending = EXTI->RPR1 & (THERM1_DRDY_Pin | THERM1_FAULT_Pin | 
-                                    THERM2_DRDY_Pin | THERM2_FAULT_Pin);
-
-  if ( pending != 0 ) {
-      // Clear the pending bits in the hardware immediately to allow new interrupts.
-      EXTI->RPR1 = pending;
-      
-      // Pass the bitmask of triggered pins to the driver dispatcher.
-      TCNotifyInterrupt( (uint16_t)pending );
-  }
-
   /* USER CODE END EXTI4_15_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(THERM1_DRDY_Pin);
   HAL_GPIO_EXTI_IRQHandler(THERM1_FAULT_Pin);
   HAL_GPIO_EXTI_IRQHandler(THERM2_DRDY_Pin);
   HAL_GPIO_EXTI_IRQHandler(THERM2_FAULT_Pin);
+  HAL_GPIO_EXTI_IRQHandler(FLGN_Pin);
   /* USER CODE BEGIN EXTI4_15_IRQn 1 */
 
   /* USER CODE END EXTI4_15_IRQn 1 */
@@ -280,6 +268,34 @@ void TIM7_LPTIM2_IRQHandler(void)
   /* USER CODE BEGIN TIM7_LPTIM2_IRQn 1 */
 
   /* USER CODE END TIM7_LPTIM2_IRQn 1 */
+}
+
+/**
+  * @brief This function handles TIM16, FDCAN1_IT0 and FDCAN2_IT0 Interrupt.
+  */
+void TIM16_FDCAN_IT0_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM16_FDCAN_IT0_IRQn 0 */
+
+  /* USER CODE END TIM16_FDCAN_IT0_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim16);
+  /* USER CODE BEGIN TIM16_FDCAN_IT0_IRQn 1 */
+
+  /* USER CODE END TIM16_FDCAN_IT0_IRQn 1 */
+}
+
+/**
+  * @brief This function handles SPI1/I2S1 Interrupt.
+  */
+void SPI1_IRQHandler(void)
+{
+  /* USER CODE BEGIN SPI1_IRQn 0 */
+
+  /* USER CODE END SPI1_IRQn 0 */
+  HAL_SPI_IRQHandler(&hspi1);
+  /* USER CODE BEGIN SPI1_IRQn 1 */
+
+  /* USER CODE END SPI1_IRQn 1 */
 }
 
 /**

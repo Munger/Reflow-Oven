@@ -1,33 +1,39 @@
 #ifndef ROTARYENCODER_H
 #define ROTARYENCODER_H
 
+#include <stdbool.h>
+
 #include "types.h"
+#include "SystemStatusFlags.h"
 
-// Status of the magnetic link between the sensor and the magnet.
 typedef enum {
-    MagStatusOk = 0,
-    MagStatusTooLow,    // Magnet is too far away
-    MagStatusTooHigh,   // Magnet is too close
-    MagStatusNotFound   // No magnet detected
-} MagStatus;
+    FlagREStatusReady = 0,
+    FlagREStatusSpinning,
+    FlagREStatusStall,
+    FlagREStatusMagWeak,
+    FlagREStatusMagStrong,
+    FlagREStatusMagMissing,
+    FlagREStatusHardwareFault,
+    
+    REFlagsCount
+} REStatusBit;
 
-// Opaque handle to an encoder instance.
+extern osEventFlagsId_t OvenFanStatusFlagsHandle;
+
+_Static_assert( REFlagsCount <= 24, "OvenFanStatusFlags out of bounds" );
+
 typedef struct RotaryEncoder* RotaryEncoderRef;
 
-// Initialise the encoder module.
-void      REInitModule( void );
-
-// Open a handle to the encoder. 
-// Uses the I2C bus configured in CubeMX.
+void             REInitModule( void );
 RotaryEncoderRef REOpen( void );
 
-// Returns the current rotational speed.
-Rpm       REGetRpm( RotaryEncoderRef Encoder );
+// Returns the rotational velocity. 
+Rpm              REGetVelocity( RotaryEncoderRef encoder );
 
-// Returns the raw angle in permille of a full rotation (0-1000).
-Permille  REGetAngle( RotaryEncoderRef Encoder );
+// The primary diagnostic interface for the supervisor.
+uint32_t         REGetStatus( void );
 
-// Returns the diagnostic status of the magnetic field.
-MagStatus REGetMagStatus( RotaryEncoderRef Encoder );
+// Called from task loop.
+void REProcess( void );
 
 #endif // ROTARYENCODER_H

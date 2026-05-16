@@ -3,7 +3,7 @@
 #include "APITask.h"
 #include "apicore.h"
 #include "apitypes.h"
-#include "stm32g0xx.h"
+#include "platform.h"
 
 typedef struct APIPBQueue {
     APIPBPtr head;

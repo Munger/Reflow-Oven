@@ -6,112 +6,132 @@
 #include "stm32g0xx_ll_adc.h"
 
 // Buffer mapping based on adc.c configuration:
-extern uint16_t AdcDataBuffer[ 7 ];
+extern AdcRaw AdcDataBuffer[ 7 ];
 
 #define IX_TEMP 4
 #define IX_VREF 5
 #define IX_VBAT 6
 
-static McuStatus CurrentStatus = McuStatusOk;
+static Temperature lastTemp;
+static Voltage     lastVcc;
 
-// Called from HAL_MspInit() in stm32g0xx_hal_msp.c to initialize the MCU module before any peripherals are set up.
-void McuInit( void ) {
-    CurrentStatus = McuStatusOk;
+// Internal helper to sync the global flag with the current state of the module flags.
+static void SyncGlobalFault( void ) {
+    if ( MCUStatusFlagsHandle == NULL ) return;
+
+    // Mask out the Ready bit (0) to check if any other fault bits are set.
+    uint32_t activeFaults = osEventFlagsGet( MCUStatusFlagsHandle ) & ~BIT( FlagMCUStatusReady );
+
+    if ( activeFaults != 0 ) {
+        osEventFlagsSet( FaultFlagsHandle, BIT( FlagMCUFault ) );
+    } else {
+        osEventFlagsClear( FaultFlagsHandle, BIT( FlagMCUFault ) );
+    }
 }
 
-Voltage McuGetVcc( void ) {
+void MCUInitModule( void ) {
+    if ( MCUStatusFlagsHandle != NULL ) {
+        osEventFlagsClear( MCUStatusFlagsHandle, 0xFFFFFF );
+        osEventFlagsSet( MCUStatusFlagsHandle, BIT( FlagMCUStatusReady ) );
+    }
+}
+
+Voltage MCUGetVcc( void ) {
     uint16_t vref_raw = AdcDataBuffer[ IX_VREF ];
+    if ( vref_raw == 0 ) return 0;
 
-    if ( vref_raw == 0 )
-        return 0;
+    lastVcc = ( 3000 * ( *VREFINT_CAL_ADDR ) ) / vref_raw;
 
-    // Use the LL macro directly; it is already defined as a pointer to the calibration addr.
-    return ( 3000 * ( *VREFINT_CAL_ADDR ) ) / vref_raw;
+    if ( lastVcc < 3000 || lastVcc > 3600 ) {
+        osEventFlagsSet( MCUStatusFlagsHandle, BIT( FlagMCUStatusVoltageUnstable ) );
+    } else {
+        osEventFlagsClear( MCUStatusFlagsHandle, BIT( FlagMCUStatusVoltageUnstable ) );
+    }
+
+    SyncGlobalFault();
+    return lastVcc;
 }
 
-Temperature McuGetInternalTemp( void ) {
-    Voltage  vcc = McuGetVcc();
+Temperature MCUGetInternalTemp( void ) {
+    Voltage  vcc = MCUGetVcc();
     uint16_t raw = AdcDataBuffer[ IX_TEMP ];
+    if ( vcc == 0 ) return 0;
 
-    if ( vcc == 0 )
-        return 0;
-
-    // Scale raw data to a virtual 3.0V basis to match factory calibration constants.
     int32_t raw_scaled = ( raw * vcc ) / 3000;
-
-    // Linear interpolation using TEMPSENSOR_CAL1_ADDR (30C) and TEMPSENSOR_CAL2_ADDR (110C).
     int32_t temp = (int32_t)( 110000 - 30000 ) * ( raw_scaled - *TEMPSENSOR_CAL1_ADDR );
     temp = temp / ( *TEMPSENSOR_CAL2_ADDR - *TEMPSENSOR_CAL1_ADDR );
+    lastTemp = (Temperature)( temp + 30000 );
 
-    return (Temperature)( temp + 30000 );
+    if ( lastTemp > 80000 ) {
+        osEventFlagsSet( MCUStatusFlagsHandle, BIT( FlagMCUStatusOverTemp ) );
+    } else {
+        osEventFlagsClear( MCUStatusFlagsHandle, BIT( FlagMCUStatusOverTemp ) );
+    }
+
+    SyncGlobalFault();
+    return lastTemp;
 }
 
-Voltage McuGetBatteryVoltage( void ) {
-    Voltage  vcc = McuGetVcc();
+Voltage MCUGetBatteryVoltage( void ) {
+    Voltage  vcc = MCUGetVcc();
     uint16_t raw = AdcDataBuffer[ IX_VBAT ];
-
-    // STM32G0 internal VBAT channel typically has a hardware divider of 3.
     return ( raw * vcc * 3 ) / 4095;
 }
 
-Permille McuGetBatteryLevel( void ) {
-    Voltage vbat = McuGetBatteryVoltage();
+Permille MCUGetBatteryLevel( void ) {
+    Voltage vbat = MCUGetBatteryVoltage();
+    Permille level;
 
-    if ( vbat >= 4200 )
-        return 1000;
-    if ( vbat <= 3000 )
-        return 0;
+    if ( vbat >= 4200 ) level = 1000;
+    else if ( vbat <= 3000 ) level = 0;
+    else level = (Permille)( ( ( vbat - 3000 ) * 1000 ) / ( 4200 - 3000 ) );
 
-    return (Permille)( ( ( vbat - 3000 ) * 1000 ) / ( 4200 - 3000 ) );
+    if ( level < 50 ) osEventFlagsSet( MCUStatusFlagsHandle, BIT( FlagMCUStatusCriticalBattery ) );
+    else osEventFlagsClear( MCUStatusFlagsHandle, BIT( FlagMCUStatusCriticalBattery ) );
+    
+    if ( level < 150 ) osEventFlagsSet( MCUStatusFlagsHandle, BIT( FlagMCUStatusLowBattery ) );
+    else osEventFlagsClear( MCUStatusFlagsHandle, BIT( FlagMCUStatusLowBattery ) );
+
+    SyncGlobalFault();
+    return level;
 }
 
-McuStatus McuGetStatus( void ) {
-    Temperature cpuTemp = McuGetInternalTemp();
-    Permille    batLevel = McuGetBatteryLevel();
-
-    if ( cpuTemp > 80000 )
-        return McuStatusOverTemp;
-    if ( batLevel < 50 )
-        return McuStatusCriticalBattery;
-    if ( batLevel < 150 )
-        return McuStatusLowBattery;
-
-    return McuStatusOk;
+uint32_t MCUGetStatus( void ) {
+    return ( MCUStatusFlagsHandle != NULL ) ? osEventFlagsGet( MCUStatusFlagsHandle ) : 0;
 }
 
-void McuGetTime( McuTime* Time ) {
-    if ( !Time )
-        return;
-
+void MCUGetTime( MCUTimePtr time ) {
+    if ( !time ) return;
     RTC_TimeTypeDef sTime = { 0 };
     RTC_DateTypeDef sDate = { 0 };
 
-    HAL_RTC_GetTime( &hrtc, &sTime, RTC_FORMAT_BIN );
-    HAL_RTC_GetDate( &hrtc, &sDate, RTC_FORMAT_BIN );
-
-    Time->Hours = sTime.Hours;
-    Time->Minutes = sTime.Minutes;
-    Time->Seconds = sTime.Seconds;
-    Time->Day = sDate.Date;
-    Time->Month = sDate.Month;
-    Time->Year = 2000 + sDate.Year;
+    if ( HAL_RTC_GetTime( &hrtc, &sTime, RTC_FORMAT_BIN ) == HAL_OK ) {
+        HAL_RTC_GetDate( &hrtc, &sDate, RTC_FORMAT_BIN );
+        time->Hours   = sTime.Hours;
+        time->Minutes = sTime.Minutes;
+        time->Seconds = sTime.Seconds;
+        time->Day     = sDate.Date;
+        time->Month   = sDate.Month;
+        time->Year    = 2000 + sDate.Year;
+    } else {
+        osEventFlagsSet( MCUStatusFlagsHandle, BIT( FlagMCUStatusRtcInvalid ) );
+        SyncGlobalFault();
+    }
 }
 
-void McuSetTime( const McuTime* Time ) {
-    if ( !Time )
-        return;
+void MCUSetTime( const MCUTimePtr time ) {
+    if ( !time ) return;
+    RTC_TimeTypeDef sTime = { .Hours = time->Hours, .Minutes = time->Minutes, .Seconds = time->Seconds };
+    RTC_DateTypeDef sDate = { .Date = time->Day, .Month = time->Month, .Year = (uint8_t)( time->Year - 2000 ) };
 
-    RTC_TimeTypeDef sTime = { 0 };
-    RTC_DateTypeDef sDate = { 0 };
+    if ( HAL_RTC_SetTime( &hrtc, &sTime, RTC_FORMAT_BIN ) == HAL_OK &&
+         HAL_RTC_SetDate( &hrtc, &sDate, RTC_FORMAT_BIN ) == HAL_OK ) {
+        osEventFlagsClear( MCUStatusFlagsHandle, BIT( FlagMCUStatusRtcInvalid ) );
+        SyncGlobalFault();
+    }
+}
 
-    sTime.Hours = Time->Hours;
-    sTime.Minutes = Time->Minutes;
-    sTime.Seconds = Time->Seconds;
-
-    sDate.Date = Time->Day;
-    sDate.Month = Time->Month;
-    sDate.Year = (uint8_t)( Time->Year - 2000 );
-
-    HAL_RTC_SetTime( &hrtc, &sTime, RTC_FORMAT_BIN );
-    HAL_RTC_SetDate( &hrtc, &sDate, RTC_FORMAT_BIN );
+void MCUProcess( void ) {
+    MCUGetInternalTemp();
+    MCUGetBatteryLevel();
 }

@@ -1,0 +1,307 @@
+// ============================================================================
+// AC FAN TUNING ENGINE
+// ============================================================================
+
+// Typedefs from types.h
+typedef uint16_t Rpm;
+typedef uint16_t Permille;     // 0-1000 units
+typedef uint32_t StressFactor; // Centi-units
+typedef uint32_t DurationMs;
+typedef uint16_t Microseconds;
+
+// System Constants
+CONSTANT MAINS_FREQ            = 50
+CONSTANT STEP_INCREMENT_PM     = 100        // 100 Permille (10%) steps
+CONSTANT NUM_STEPS             = 10
+CONSTANT MAX_BURST_WINDOW      = 30
+CONSTANT PHASE1_OFF_CEILING    = 15         // Phase 1 specific ceiling
+CONSTANT REPEAT_COUNT          = 3          // Measurements to average
+CONSTANT MIN_ALPHA_US          = 1000
+CONSTANT MAX_ALPHA_US          = 7500
+CONSTANT STALL_TIMEOUT_MS      = 100
+CONSTANT SPINUP_TIMEOUT_MS     = 600
+CONSTANT SETTLE_TIMEOUT_MS     = 10000      // 10s Hard timeout
+CONSTANT JERK_CEILING          = 1000       // MARKED FOR EMPIRICAL TUNING
+CONSTANT STRESS_FACTOR_MAX     = 1000000
+CONSTANT OSCILLATION_PENALTY   = 50         // Stress per RPM spread
+
+// Weights in Permille
+CONSTANT WEIGHT_JERK_PM        = 600        // 0.6 equivalent
+CONSTANT WEIGHT_SLIP_PM        = 400        // 0.4 equivalent
+
+STRUCTURE ControlTriplet
+    alpha: UINT16
+    N_on:  UINT8
+    N_off: UINT8
+
+STRUCTURE TestResult
+    triplet: ControlTriplet
+    measured_rpm: Rpm
+    stress_factor: StressFactor
+
+STRUCTURE ProfileSlot
+    is_feasible: BOOLEAN
+    strategy: ControlTriplet
+    actual_rpm: Rpm
+
+// Global State
+GLOBAL ProfileSlot FLASH_PROFILE_MAP[NUM_STEPS + 1] 
+GLOBAL TestResult GLOBAL_ARCHIVE[5000]          // Flat array archive
+GLOBAL UINT16 ARCHIVE_COUNT = 0
+GLOBAL Rpm MOTOR_MAX_RPM = 0
+
+// ============================================================================
+// HARDWARE & FEEDBACK LAYER (FIXED-POINT)
+// ============================================================================
+
+FUNCTION Calculate_Shortest_Counts_Distance(UINT16 start, UINT16 end)
+    INT32 delta = (INT32)end - (INT32)start
+    WHILE (delta > 2048)  DO delta = delta - 4096
+    WHILE (delta < -2048) DO delta = delta + 4096
+    RETURN delta
+
+FUNCTION Low_Pass_Filter_4_Sample(INT32 raw_value)
+    GLOBAL STATIC INT32 sample_buffer[4] = [0, 0, 0, 0] 
+    sample_buffer[3] = sample_buffer[2]
+    sample_buffer[2] = sample_buffer[1]
+    sample_buffer[1] = sample_buffer[0]
+    sample_buffer[0] = raw_value
+    RETURN (sample_buffer[0] + sample_buffer[1] + sample_buffer[2] + sample_buffer[3]) / 4
+
+FUNCTION Get_Rotor_RPM()
+    UINT16 angle_start = READ_I2C_REG(AS5600_ADDR, RAW_ANGLE)
+    WAIT_US(1000)
+    UINT16 angle_end = READ_I2C_REG(AS5600_ADDR, RAW_ANGLE)
+    
+    INT32 delta_counts = Calculate_Shortest_Counts_Distance(angle_start, angle_end)
+    
+    // Filter signed counts before applying absolute/scaling to handle measurement artefacts
+    INT32 filtered_delta = Low_Pass_Filter_4_Sample(delta_counts)
+    
+    // Motor spins one direction; negative values are treated as zero/noise floor
+    IF (filtered_delta < 0) THEN filtered_delta = 0
+    
+    // Formula: RPM = filtered_delta_counts * 14648 / 1000
+    RETURN (Rpm)((filtered_delta * 14648) / 1000)
+
+FUNCTION Get_Rotor_Peak_Jerk(DurationMs duration_ms)
+    UINT32 peak_jerk = 0
+    INT32 last_acceleration = 0
+    INT32 last_velocity = (INT32)Get_Rotor_RPM()
+    DurationMs timer_ms = 0
+    
+    WHILE (timer_ms < duration_ms)
+        WAIT_MS(5)
+        INT32 current_velocity = (INT32)Get_Rotor_RPM()
+        // Compute acceleration (dV/dt). Explicit INT32 cast to ensure signed arithmetic
+        INT32 current_acceleration = (current_velocity - last_velocity) / (INT32)5
+        // Compute Jerk (da/dt). Take absolute as direction is irrelevant for stress
+        INT32 jerk_raw = (current_acceleration - last_acceleration) / (INT32)5
+        UINT32 current_jerk = (UINT32)ABSOLUTE_VALUE(jerk_raw)
+        
+        IF (current_jerk > peak_jerk) THEN peak_jerk = current_jerk
+        
+        last_velocity = current_velocity
+        last_acceleration = current_acceleration
+        timer_ms = timer_ms + 5
+    RETURN peak_jerk
+
+FUNCTION Wait_For_Settle(REF Rpm settled_rpm, REF UINT16 p2p_spread)
+    Rpm window[10]
+    UINT32 elapsed = 0
+    UINT8 w_idx = 0 // Will wrap at 255 explicitly, fine for window indexing
+    
+    WHILE (elapsed < SETTLE_TIMEOUT_MS)
+        window[w_idx % 10] = Get_Rotor_RPM()
+        IF (elapsed >= 1000) 
+            Rpm min_r = 65535, max_r = 0
+            FOR i FROM 0 TO 9
+                IF (window[i] < min_r) THEN min_r = window[i]
+                IF (window[i] > max_r) THEN max_r = window[i]
+            p2p_spread = max_r - min_r
+            IF (p2p_spread <= 20) 
+                settled_rpm = (min_r + max_r) / 2
+                RETURN TRUE
+        WAIT_MS(100)
+        elapsed = elapsed + 100
+        w_idx = w_idx + 1
+    settled_rpm = Get_Rotor_RPM()
+    RETURN FALSE
+
+// ============================================================================
+// CALCULATION & DRIVE CORE
+// ============================================================================
+
+FUNCTION Calculate_Stress_Integer(Rpm rpm, UINT32 peak_jerk, UINT16 p2p_spread, BOOLEAN settled)
+    // Guard against rpm > 3000 to prevent uint16 underflow
+    Rpm sync_speed = 3000
+    INT32 slip_val = (INT32)sync_speed - (INT32)rpm
+    IF (slip_val < 0) THEN slip_val = 0
+    Permille slip_pm = (Permille)((slip_val * 1000) / sync_speed) 
+    
+    Permille jerk_pm = (Permille)((peak_jerk * 1000) / JERK_CEILING)
+    
+    // Intermediate sum must be UINT32 to hold up to 1,000,000 before scaling
+    UINT32 weighted_sum = ((UINT32)jerk_pm * WEIGHT_JERK_PM) + ((UINT32)slip_pm * WEIGHT_SLIP_PM)
+    UINT32 base_stress = weighted_sum * 100
+    
+    IF (settled == FALSE) THEN base_stress = base_stress + (p2p_spread * OSCILLATION_PENALTY)
+    RETURN base_stress
+
+FUNCTION INTERPOLATE_LINEAR(INT32 low, INT32 high, Permille fraction_pm)
+    RETURN low + (((high - low) * (INT32)fraction_pm) / 1000)
+
+PROCEDURE Execute_Rotor_Stop()
+    SET_TRIAC_STATE(OFF)
+    WHILE (Get_Rotor_RPM() > 1) DO WAIT_MS(50)
+
+FUNCTION Execute_Startup_Kick(Rpm target_rpm)
+    SET_TRIAC_ALPHA(0)
+    SET_TRIAC_STATE(ON)
+    DurationMs timer_ms = 0
+    // Use UINT32 intermediate for intercept calc to prevent overflow before division
+    Rpm intercept_velocity = (Rpm)(((UINT32)target_rpm * 900) / 1000)
+    
+    WHILE (timer_ms < SPINUP_TIMEOUT_MS)
+        WAIT_MS(2)
+        Rpm current_rpm = Get_Rotor_RPM()
+        IF (timer_ms >= STALL_TIMEOUT_MS AND current_rpm < 2) 
+            SET_TRIAC_STATE(OFF)
+            RETURN FALSE 
+        IF (current_rpm >= intercept_velocity) THEN RETURN TRUE
+        timer_ms = timer_ms + 2
+    RETURN TRUE
+
+PROCEDURE Apply_Drive_Triplet(ControlTriplet T)
+    CONFIGURE_ZCD_INTERRUPT_TIMER(T.alpha, T.N_on, T.N_off)
+
+// ============================================================================
+// CALIBRATION ENGINE
+// ============================================================================
+
+FUNCTION Measure_Triplet_Averaged(ControlTriplet T)
+    FOR i FROM 0 TO (ARCHIVE_COUNT - 1)
+        IF (GLOBAL_ARCHIVE[i].triplet.alpha == T.alpha AND 
+            GLOBAL_ARCHIVE[i].triplet.N_on == T.N_on AND 
+            GLOBAL_ARCHIVE[i].triplet.N_off == T.N_off) 
+            RETURN GLOBAL_ARCHIVE[i]
+
+    UINT32 sum_rpm = 0, sum_stress = 0, valid_trials = 0
+    FOR r FROM 1 TO REPEAT_COUNT 
+        Execute_Rotor_Stop()
+        IF (Execute_Startup_Kick(1500)) 
+            Apply_Drive_Triplet(T)
+            Rpm current_rpm
+            UINT16 p2p
+            BOOLEAN settled = Wait_For_Settle(current_rpm, p2p)
+            StressFactor s = Calculate_Stress_Integer(current_rpm, Get_Rotor_Peak_Jerk(1000), p2p, settled)
+            sum_rpm = sum_rpm + current_rpm
+            sum_stress = sum_stress + s
+            valid_trials = valid_trials + 1
+            
+    TestResult res
+    IF (valid_trials == 0) 
+        res.triplet = T
+        res.measured_rpm = 0
+        res.stress_factor = STRESS_FACTOR_MAX
+    ELSE
+        res.triplet = T
+        res.measured_rpm = (Rpm)(sum_rpm / valid_trials)
+        res.stress_factor = (StressFactor)(sum_stress / valid_trials)
+    
+    GLOBAL_ARCHIVE[ARCHIVE_COUNT] = res
+    ARCHIVE_COUNT = ARCHIVE_COUNT + 1
+    RETURN res
+
+PROCEDURE Run_Periodic_Calibration()
+    ARCHIVE_COUNT = 0 
+    Execute_Rotor_Stop()
+    Execute_Startup_Kick(3000)
+    SET_TRIAC_ALPHA(0)
+    SET_TRIAC_STATE(ON)
+    WAIT_MS(5000)
+    MOTOR_MAX_RPM = Get_Rotor_RPM()
+    
+    FOR step FROM 1 TO NUM_STEPS
+        Rpm target_rpm = (MOTOR_MAX_RPM * (step * STEP_INCREMENT_PM)) / 1000
+        TestResult best_p1
+        best_p1.stress_factor = STRESS_FACTOR_MAX
+
+        FOR a FROM MIN_ALPHA_US TO MAX_ALPHA_US STEP 1000
+            FOR on FROM 1 TO MAX_BURST_WINDOW STEP 1
+                FOR off FROM 0 TO PHASE1_OFF_CEILING STEP 1
+                    TestResult res = Measure_Triplet_Averaged([a, on, off])
+                    IF (res.stress_factor < best_p1.stress_factor)
+                        IF (ABSOLUTE_VALUE(res.measured_rpm - target_rpm) <= (MOTOR_MAX_RPM * 50 / 1000))
+                            best_p1 = res
+
+        TestResult best_p2 = best_p1
+        // Loop variables declared as INT32 to handle negative offsets for clamping
+        FOR INT32 a_raw FROM ((INT32)best_p1.triplet.alpha - 1000) TO ((INT32)best_p1.triplet.alpha + 1000) STEP 250
+            FOR INT32 on_raw FROM ((INT32)best_p1.triplet.N_on - 3) TO ((INT32)best_p1.triplet.N_on + 3) STEP 1
+                FOR INT32 off_raw FROM ((INT32)best_p1.triplet.N_off - 3) TO ((INT32)best_p1.triplet.N_off + 3) STEP 1
+                    // Apply explicit clamping to boundaries
+                    UINT16 a = (UINT16)a_raw
+                    IF (a_raw < MIN_ALPHA_US) THEN a = MIN_ALPHA_US
+                    IF (a_raw > MAX_ALPHA_US) THEN a = MAX_ALPHA_US
+                    
+                    UINT8 on = (UINT8)on_raw
+                    IF (on_raw < 1) THEN on = 1
+                    IF (on_raw > MAX_BURST_WINDOW) THEN on = MAX_BURST_WINDOW
+                    
+                    UINT8 off = (UINT8)off_raw
+                    IF (off_raw < 0) THEN off = 0
+                    IF (off_raw > MAX_BURST_WINDOW) THEN off = MAX_BURST_WINDOW
+                    
+                    TestResult res = Measure_Triplet_Averaged([a, on, off])
+                    IF (res.stress_factor < best_p2.stress_factor)
+                        IF (ABSOLUTE_VALUE(res.measured_rpm - target_rpm) <= (MOTOR_MAX_RPM * 20 / 1000))
+                            best_p2 = res
+
+        FLASH_PROFILE_MAP[step].strategy = best_p2.triplet
+        FLASH_PROFILE_MAP[step].actual_rpm = best_p2.measured_rpm
+        FLASH_PROFILE_MAP[step].is_feasible = (best_p2.stress_factor < STRESS_FACTOR_MAX)
+
+    Enforce_Operational_Floor()
+    WRITE_ARRAY_TO_EXTERNAL_FLASH(FLASH_PROFILE_MAP)
+
+PROCEDURE Enforce_Operational_Floor()
+    lowest_valid_index = -1
+    FOR step FROM 1 TO NUM_STEPS
+        IF (FLASH_PROFILE_MAP[step].is_feasible == TRUE)
+            lowest_valid_index = step
+            BREAK 
+    IF (lowest_valid_index > 1)
+        FOR step FROM 1 TO (lowest_valid_index - 1)
+            FLASH_PROFILE_MAP[step].strategy = FLASH_PROFILE_MAP[lowest_valid_index].strategy
+            FLASH_PROFILE_MAP[step].actual_rpm = FLASH_PROFILE_MAP[lowest_valid_index].actual_rpm
+            FLASH_PROFILE_MAP[step].is_feasible = TRUE
+    // Slot Zero Assignment: Absolute Off
+    FLASH_PROFILE_MAP[0].strategy = [MAX_ALPHA_US, 0, 1] 
+    FLASH_PROFILE_MAP[0].actual_rpm = 0
+    FLASH_PROFILE_MAP[0].is_feasible = TRUE
+
+// ============================================================================
+// RUNTIME INTERPOLATOR
+// ============================================================================
+
+PROCEDURE Drive_Fan_At_Requested_Permille(Permille requested_pm)
+    IF (requested_pm <= 0)
+        Apply_Drive_Triplet(FLASH_PROFILE_MAP[0].strategy)
+        RETURN
+    lower_idx = requested_pm / 100
+    upper_idx = (requested_pm + 99) / 100
+    IF (lower_idx == upper_idx)
+        Apply_Drive_Triplet(FLASH_PROFILE_MAP[lower_idx].strategy)
+        RETURN
+    fraction = (requested_pm % 100) * 10 
+    low = FLASH_PROFILE_MAP[lower_idx].strategy
+    high = FLASH_PROFILE_MAP[upper_idx].strategy
+    IF ((low.N_off > 0 AND high.N_off == 0) OR (low.N_off == 0 AND high.N_off > 0))
+        IF (fraction < 500) THEN Apply_Drive_Triplet(low) ELSE Apply_Drive_Triplet(high)
+    ELSE
+        ControlTriplet interp
+        interp.alpha = (UINT16)INTERPOLATE_LINEAR(low.alpha, high.alpha, fraction)
+        interp.N_on  = (UINT8)INTERPOLATE_LINEAR(low.N_on,  high.N_on,  fraction)
+        interp.N_off = (UINT8)INTERPOLATE_LINEAR(low.N_off, high.N_off, fraction)
+        Apply_Drive_Triplet(interp)

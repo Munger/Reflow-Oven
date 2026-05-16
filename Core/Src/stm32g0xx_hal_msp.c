@@ -85,8 +85,6 @@ void HAL_MspInit(void)
   HAL_SYSCFG_StrobeDBattpinsConfig(SYSCFG_CFGR1_UCPD1_STROBE | SYSCFG_CFGR1_UCPD2_STROBE);
 
   /* USER CODE BEGIN MspInit 1 */
-
-  McuInit();
   
   /* USER CODE END MspInit 1 */
 }

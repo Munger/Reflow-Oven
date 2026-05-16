@@ -69,6 +69,13 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define ADC1Handle hadc1
+#define LPUART2Handle hlpuart2
+#define SPI1Handle hspi1
+#define UCPD1Handle UCPD1
+#define TIM7Handle htim7
+#define TIM1Handle htim1
+#define I2C1Handle hi2c1
 #define HDL_BOOT0_Pin GPIO_PIN_13
 #define HDL_BOOT0_GPIO_Port GPIOC
 #define OSC32_IN_Pin GPIO_PIN_14
@@ -77,6 +84,8 @@ void Error_Handler(void);
 #define OSC32_OUT_GPIO_Port GPIOC
 #define OSC_IN_Pin GPIO_PIN_0
 #define OSC_IN_GPIO_Port GPIOF
+#define AUX_24V_EN_N_Pin GPIO_PIN_1
+#define AUX_24V_EN_N_GPIO_Port GPIOF
 #define IANA_Pin GPIO_PIN_0
 #define IANA_GPIO_Port GPIOA
 #define MAINS_PWR_N_Pin GPIO_PIN_1
@@ -117,6 +126,7 @@ void Error_Handler(void);
 #define SWCLK_GPIO_Port GPIOA
 #define FLGN_Pin GPIO_PIN_15
 #define FLGN_GPIO_Port GPIOA
+#define FLGN_EXTI_IRQn EXTI4_15_IRQn
 #define ESTOP_Pin GPIO_PIN_0
 #define ESTOP_GPIO_Port GPIOD
 #define ESTOP_EXTI_IRQn EXTI0_1_IRQn

@@ -22,8 +22,6 @@
 
 /* USER CODE BEGIN 0 */
 
-#include "thermistor.h"
-
 /* USER CODE END 0 */
 
 ADC_HandleTypeDef hadc1;
@@ -135,8 +133,6 @@ void MX_ADC1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN ADC1_Init 2 */
-
-  TMInitModule(&hadc1);
   
   /* USER CODE END ADC1_Init 2 */
 

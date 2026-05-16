@@ -47,13 +47,27 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/api/apicore.c
     Core/Src/api/apicodec.c
     Core/Src/api/apihandlers.c
-    Core/Src/Tasks/APITask.c
-    Core/Src/Tasks/taskutils.c
+    Core/Src/Drivers/interrupts.c
+    Core/Src/Drivers/I2CManager.c
+    Core/Src/Drivers/SPIManager.c
     Core/Src/Drivers/buzzer.c
+    Core/Src/Drivers/dcfan.c
     Core/Src/Drivers/mcu.c
+    Core/Src/Drivers/powermanager.c
+    Core/Src/Drivers/rotaryencoder.c
     Core/Src/Drivers/thermistor.c
+    Core/Src/Drivers/thermistori2c.c
     Core/Src/Drivers/thermocouple.c
-    
+    Core/Src/Drivers/triac.c
+    Core/Src/Drivers/usbpowerdelivery.c
+    Core/Src/Tasks/APITask.c
+    Core/Src/Tasks/DeviceTask.c
+    Core/Src/Tasks/LoggingTask.c
+    Core/Src/Tasks/ManagerTask.c
+    Core/Src/Tasks/USBPDTask.c
+    Core/Src/Tasks/taskutils.c
+    Core/Src/Tuning/ACFanTuning.c
+
     # Add third-party source files directly to your target
     Middlewares/Third_Party/cJSON/cJSON.c
     Middlewares/Third_Party/littlefs/lfs.c
@@ -68,6 +82,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Inc/Drivers
     Middlewares/Third_Party/cJSON
     Middlewares/Third_Party/littlefs
+    Core/Src/Tuning
 )
 
 # 5. LINK LIBRARIES
