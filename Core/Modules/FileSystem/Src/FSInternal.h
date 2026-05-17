@@ -40,4 +40,15 @@ void VolIncrementOpenFiles( VolRef vol );
 /// @brief Decrement the open-file reference count for a volume.
 void VolDecrementOpenFiles( VolRef vol );
 
+/// @brief Resolve an absolute path to the volume that owns it.
+///
+/// Matches the leading path component against mounted volume mount points.
+/// On success, @p relPath is set to the remainder of the path after the
+/// mount point prefix (never starts with '/').
+///
+/// @param absPath Absolute path, e.g. "/system/SysConfig.ini".
+/// @param relPath Set to the volume-relative path on success.
+/// @return Mounted volume handle, or NULL if no mounted volume matches.
+VolRef VolResolve( const char* absPath, const char** relPath );
+
 #endif // FSINTERNAL_H

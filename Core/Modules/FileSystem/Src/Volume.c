@@ -47,6 +47,7 @@ typedef struct FSVolume {
     FSMountFlags      mountFlags;
     uint32_t          statusBits;
     uint8_t           openFileCount;
+    char              mountPoint[ kPartNameLen + 1 ]; ///< e.g. "/system"
     lfs_t             lfs;
     struct lfs_config lfsCfg;
     uint8_t           readBuf[ kLfsCacheSize ];
@@ -84,8 +85,6 @@ void VolDecrementOpenFiles( VolRef vol ) {
 // Private helpers
 // ============================================================================
 
-#define BIT_SHIFT( n ) ( 1UL << (uint32_t)( n ) )
-
 static FSVolume* AllocVolume( void ) {
     for ( uint8_t i = 0; i < kVolMaxCount; i++ ) {
         if ( !( pool[ i ].statusBits & BIT_SHIFT( FlagVolMounted ) ) ) {
@@ -118,6 +117,9 @@ VolRef VolMount( PartRef part, FSMountFlags flags ) {
     vol->partition      = part;
     vol->mountFlags     = flags;
     vol->openFileCount  = 0;
+    vol->mountPoint[0]  = '/';
+    strncpy( vol->mountPoint + 1, entry.name, kPartNameLen - 1 );
+    vol->mountPoint[ kPartNameLen ] = '\0';
 
     LFSAdapterConfigure( &vol->lfsCfg, vol, entry.blockCount,
                          vol->readBuf, vol->progBuf, vol->lookaheadBuf );
@@ -180,4 +182,21 @@ uint32_t VolGetStatus( VolRef vol ) {
 
 PartRef VolGetPartition( VolRef vol ) {
     return vol ? vol->partition : NULL;
+}
+
+VolRef VolResolve( const char* absPath, const char** relPath ) {
+    if ( absPath == NULL || relPath == NULL ) return NULL;
+    for ( uint8_t i = 0; i < kVolMaxCount; i++ ) {
+        if ( !( pool[ i ].statusBits & BIT_SHIFT( FlagVolMounted ) ) ) continue;
+        const char* mp    = pool[ i ].mountPoint;
+        size_t      mpLen = strlen( mp );
+        if ( strncmp( absPath, mp, mpLen ) == 0 &&
+             ( absPath[ mpLen ] == '/' || absPath[ mpLen ] == '\0' ) ) {
+            const char* rem = absPath + mpLen;
+            if ( *rem == '/' ) rem++;
+            *relPath = ( *rem == '\0' ) ? "/" : rem;
+            return &pool[ i ];
+        }
+    }
+    return NULL;
 }

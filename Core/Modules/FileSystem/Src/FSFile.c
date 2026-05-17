@@ -83,6 +83,38 @@ static int MapOpenFlags( FSOpenFlags flags ) {
     return lfsFlags;
 }
 
+// ============================================================================
+// Per-file attribute storage (LittleFS custom attributes)
+// ============================================================================
+//
+// LittleFS has no native uid/mode fields. We store them as two custom
+// attributes on every file and directory so permission checks are real.
+
+enum { kAttrUid  = 0x01 };  // stored as 1 byte
+enum { kAttrMode = 0x02 };  // stored as 2 bytes (little-endian)
+
+static void GetFileAttrs( lfs_t* lfs, const char* path,
+                          FSUid* uid, FSMode* mode ) {
+    uint8_t  u = 0;
+    uint16_t m;
+    lfs_getattr( lfs, path, kAttrUid,  &u, sizeof(u) );
+    *uid = (FSUid)u;
+    if ( lfs_getattr( lfs, path, kAttrMode, &m, sizeof(m) ) >= 0 ) {
+        *mode = (FSMode)m;
+    }
+    // If kAttrMode is absent, *mode retains the caller's default
+}
+
+static FSResult SetFileAttrs( lfs_t* lfs, const char* path,
+                               FSUid uid, FSMode mode ) {
+    uint8_t  u = (uint8_t)uid;
+    uint16_t m = (uint16_t)mode;
+    int err = lfs_setattr( lfs, path, kAttrUid,  &u, sizeof(u) );
+    if ( err != LFS_ERR_OK ) return FSMapLFSError( err );
+    err = lfs_setattr( lfs, path, kAttrMode, &m, sizeof(m) );
+    return FSMapLFSError( err );
+}
+
 /// @brief Return true if @p uid has read permission on a file with @p mode owned by @p ownerUid.
 static bool HasReadPermission( FSUid uid, FSUid ownerUid, FSMode mode ) {
     if ( uid == 0 ) return true;
@@ -101,23 +133,34 @@ static bool HasWritePermission( FSUid uid, FSUid ownerUid, FSMode mode ) {
 // Public API — files
 // ============================================================================
 
-FileRef FileOpen( VolRef vol, const char* path, FSOpenFlags flags, FSUid uid ) {
-    if ( vol == NULL || path == NULL ) return NULL;
+FileRef FileOpen( const char* path, FSOpenFlags flags, FSUid uid ) {
+    if ( path == NULL ) return NULL;
+
+    const char* relPath;
+    VolRef vol = VolResolve( path, &relPath );
+    if ( vol == NULL ) return NULL;
 
     lfs_t* lfs = VolGetLFS( vol );
     if ( lfs == NULL ) return NULL;
 
     bool wantWrite = ( flags & 0x03 ) != FSOpenReadOnly;
 
-    if ( !( flags & FSOpenCreate ) ) {
-        struct lfs_info info;
-        int err = lfs_stat( lfs, path, &info );
-        if ( err == LFS_ERR_OK ) {
-            FSUid  ownerUid = 0;       // LittleFS has no native uid — default to 0
-            FSMode fileMode = FSModeDefault;
-            if ( !HasReadPermission( uid, ownerUid, fileMode ) ) return NULL;
-            if ( wantWrite && !HasWritePermission( uid, ownerUid, fileMode ) ) return NULL;
-        }
+    if ( wantWrite && ( VolGetStatus( vol ) & ( 1UL << FlagVolReadOnly ) ) ) {
+        return NULL;
+    }
+
+    bool   fileExists = false;
+    FSUid  ownerUid   = 0;
+    FSMode fileMode   = FSModeDefault;
+
+    struct lfs_info info;
+    if ( lfs_stat( lfs, relPath, &info ) == LFS_ERR_OK ) {
+        fileExists = true;
+        GetFileAttrs( lfs, relPath, &ownerUid, &fileMode );
+        if ( !HasReadPermission( uid, ownerUid, fileMode ) ) return NULL;
+        if ( wantWrite && !HasWritePermission( uid, ownerUid, fileMode ) ) return NULL;
+    } else if ( !( flags & FSOpenCreate ) ) {
+        return NULL;
     }
 
     FSFileHandle* h = AllocHandle();
@@ -130,12 +173,16 @@ FileRef FileOpen( VolRef vol, const char* path, FSOpenFlags flags, FSUid uid ) {
 
     h->lfsFileCfg.buffer = h->fileBuf;
 
-    int err = lfs_file_opencfg( lfs, &h->lfsFile, path,
+    int err = lfs_file_opencfg( lfs, &h->lfsFile, relPath,
                                  MapOpenFlags( flags ), &h->lfsFileCfg );
     if ( err != LFS_ERR_OK ) {
         h->lastError = FSMapLFSError( err );
         FreeHandle( h );
         return NULL;
+    }
+
+    if ( !fileExists ) {
+        SetFileAttrs( lfs, relPath, uid, FSModeDefault );
     }
 
     VolIncrementOpenFiles( vol );
@@ -212,41 +259,58 @@ FSResult FileTell( FileRef file, uint32_t* pos ) {
 // Public API — directory and metadata
 // ============================================================================
 
-FSResult FileStat( VolRef vol, const char* path, FSUid uid, FSStat* stat ) {
-    if ( vol == NULL || path == NULL || stat == NULL ) return FSResultInvalid;
+FSResult FileStat( const char* path, FSUid uid, FSStat* stat ) {
+    if ( path == NULL || stat == NULL ) return FSResultInvalid;
+    const char* relPath;
+    VolRef vol = VolResolve( path, &relPath );
+    if ( vol == NULL ) return FSResultNotFound;
     lfs_t* lfs = VolGetLFS( vol );
     if ( lfs == NULL ) return FSResultNotMounted;
 
     struct lfs_info info;
-    int err = lfs_stat( lfs, path, &info );
+    int err = lfs_stat( lfs, relPath, &info );
     if ( err != LFS_ERR_OK ) return FSMapLFSError( err );
 
+    FSUid  ownerUid = 0;
+    FSMode fileMode = ( info.type == LFS_TYPE_DIR ) ? FSModeDirDefault : FSModeDefault;
+    GetFileAttrs( lfs, relPath, &ownerUid, &fileMode );
     (void)uid;
     stat->size  = (uint32_t)info.size;
-    stat->mode  = ( info.type == LFS_TYPE_DIR ) ? FSModeDirDefault : FSModeDefault;
-    stat->uid   = 0;
+    stat->mode  = fileMode;
+    stat->uid   = ownerUid;
     stat->isDir = ( info.type == LFS_TYPE_DIR );
     return FSResultOk;
 }
 
-FSResult FileDelete( VolRef vol, const char* path, FSUid uid ) {
-    if ( vol == NULL || path == NULL ) return FSResultInvalid;
-    if ( uid != 0 ) {
-        // Non-root callers may only delete files they own.
-        // LittleFS has no native ownership; treat as permission denied for non-root.
-        return FSResultPermission;
-    }
+FSResult FileDelete( const char* path, FSUid uid ) {
+    if ( path == NULL ) return FSResultInvalid;
+    const char* relPath;
+    VolRef vol = VolResolve( path, &relPath );
+    if ( vol == NULL ) return FSResultNotFound;
     lfs_t* lfs = VolGetLFS( vol );
     if ( lfs == NULL ) return FSResultNotMounted;
-    return FSMapLFSError( lfs_remove( lfs, path ) );
+
+    if ( uid != 0 ) {
+        FSUid  ownerUid = 0;
+        FSMode fileMode = FSModeDefault;
+        GetFileAttrs( lfs, relPath, &ownerUid, &fileMode );
+        if ( uid != ownerUid ) return FSResultPermission;
+    }
+
+    return FSMapLFSError( lfs_remove( lfs, relPath ) );
 }
 
-FSResult FileMkdir( VolRef vol, const char* path, FSUid uid, FSMode mode ) {
-    if ( vol == NULL || path == NULL ) return FSResultInvalid;
+FSResult FileMkdir( const char* path, FSUid uid, FSMode mode ) {
+    if ( path == NULL ) return FSResultInvalid;
+    const char* relPath;
+    VolRef vol = VolResolve( path, &relPath );
+    if ( vol == NULL ) return FSResultNotFound;
     lfs_t* lfs = VolGetLFS( vol );
     if ( lfs == NULL ) return FSResultNotMounted;
-    (void)uid; (void)mode;
-    return FSMapLFSError( lfs_mkdir( lfs, path ) );
+    int err = lfs_mkdir( lfs, relPath );
+    if ( err != LFS_ERR_OK ) return FSMapLFSError( err );
+    SetFileAttrs( lfs, relPath, uid, mode );
+    return FSResultOk;
 }
 
 // ============================================================================

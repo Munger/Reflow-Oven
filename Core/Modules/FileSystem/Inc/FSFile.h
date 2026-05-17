@@ -23,7 +23,6 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "FSTypes.h"
-#include "Volume.h"
 
 // ============================================================================
 // Limits
@@ -43,19 +42,18 @@ typedef struct FSFileHandle* FileRef;
 // Synchronous file operations
 // ============================================================================
 
-/// @brief Open a file on a mounted volume.
+/// @brief Open a file by absolute path.
 ///
-/// Allocates a handle from the shared pool, checks caller permissions, and
-/// opens the underlying filesystem file. If FSOpenCreate is set and the file
-/// does not exist, it is created with FSModeDefault and owner @p uid.
-/// Returns NULL on error; the reason is available via FileGetLastError().
+/// Resolves the path to the appropriate mounted volume, checks caller
+/// permissions, and opens the underlying filesystem file. If FSOpenCreate
+/// is set and the file does not exist, it is created with FSModeDefault
+/// and owner @p uid. Returns NULL on error.
 ///
-/// @param vol   Volume handle returned by VolMount().
-/// @param path  Absolute path within the volume (e.g. "/config/settings.bin").
+/// @param path  Absolute path (e.g. "/system/SysConfig.ini").
 /// @param flags Access mode and option flags.
 /// @param uid   Caller's UID. UID 0 bypasses permission checks.
 /// @return File handle, or NULL on error.
-FileRef FileOpen( VolRef vol, const char* path, FSOpenFlags flags, FSUid uid );
+FileRef FileOpen( const char* path, FSOpenFlags flags, FSUid uid );
 
 /// @brief Close an open file, flushing any pending writes.
 /// @param file Handle returned by FileOpen().
@@ -98,29 +96,26 @@ FSResult FileTell( FileRef file, uint32_t* pos );
 
 /// @brief Return file or directory metadata without opening the file.
 ///
-/// @param vol  Volume handle.
 /// @param path Absolute path.
 /// @param uid  Caller's UID.
 /// @param stat Struct to populate.
 /// @return FSResultOk, FSResultNotFound, or FSResultPermission.
-FSResult FileStat( VolRef vol, const char* path, FSUid uid, FSStat* stat );
+FSResult FileStat( const char* path, FSUid uid, FSStat* stat );
 
 /// @brief Delete a file or empty directory.
 ///
-/// @param vol  Volume handle.
 /// @param path Absolute path.
 /// @param uid  Caller's UID. Only the owner (or UID 0) may delete.
 /// @return FSResultOk, FSResultPermission, FSResultNotFound, or FSResultNotEmpty.
-FSResult FileDelete( VolRef vol, const char* path, FSUid uid );
+FSResult FileDelete( const char* path, FSUid uid );
 
 /// @brief Create a directory.
 ///
-/// @param vol  Volume handle.
 /// @param path Absolute path of the new directory.
 /// @param uid  Caller's UID (becomes the directory owner).
 /// @param mode Permission mode for the new directory.
 /// @return FSResultOk, FSResultExists, FSResultPermission, or FSResultNoSpace.
-FSResult FileMkdir( VolRef vol, const char* path, FSUid uid, FSMode mode );
+FSResult FileMkdir( const char* path, FSUid uid, FSMode mode );
 
 // ============================================================================
 // Asynchronous file operations

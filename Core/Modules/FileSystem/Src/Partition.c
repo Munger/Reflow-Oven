@@ -14,8 +14,8 @@
 /// version, or checksum is invalid the default layout is written and used.
 ///
 /// Default partition layout (64 MB NOR flash, 4 KB blocks, block 0 reserved):
-///   "config"  blocks   1–128  (512 KB)  LittleFS, uid 0, mode 0755
-///   "log"     blocks 129–16383 (~63.5 MB) LittleFS, uid 0, mode 0644, USB-visible
+///   "system"  blocks    1–1024  ( 4 MB)   LittleFS, uid 0, mode 0755
+///   "user"    blocks 1025–16383 (~60 MB)  LittleFS, uid 0, mode 0755, USB-visible
 ///
 /// @copyright Copyright (c) 2026 Tim Hosking
 /// @see https://github.com/munger
@@ -60,9 +60,9 @@ static BDRef       partDevice = NULL;
 
 static const FSPartEntry kDefaultEntries[] = {
     {
-        .name       = "config",
+        .name       = "system",
         .startBlock = 1,
-        .blockCount = 128,
+        .blockCount = 1024,
         .type       = (uint8_t)FSPartLittleFS,
         .flags      = 0,
         .uid        = 0,
@@ -71,14 +71,14 @@ static const FSPartEntry kDefaultEntries[] = {
         .pad        = { 0, 0 },
     },
     {
-        .name       = "log",
-        .startBlock = 129,
-        .blockCount = 16255,
+        .name       = "user",
+        .startBlock = 1025,
+        .blockCount = 15359,
         .type       = (uint8_t)FSPartLittleFS,
         .flags      = (uint8_t)FSPartFlagUsbVisible,
         .uid        = 0,
         .reserved   = 0,
-        .mode       = FSModeDefault,
+        .mode       = FSModeDirDefault,
         .pad        = { 0, 0 },
     },
 };

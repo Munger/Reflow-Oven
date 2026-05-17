@@ -86,7 +86,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 # 4. INCLUDE DIRECTORIES
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/API/Inc
-    Core/Modules/General/Inc
+    Core/Modules/Includes
     Core/Modules/Tasks/Inc
     Core/Modules/Drivers/Inc
     Core/Modules/Tuning/Inc
