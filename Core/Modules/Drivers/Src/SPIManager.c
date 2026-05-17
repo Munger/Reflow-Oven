@@ -73,16 +73,12 @@ void SPIInitModule( void ) {
 }
 
 /// @brief Return a handle to a specific SPI bus instance.
-/// @param[in] id Bus identifier.
-/// @return Handle to the instance, or NULL if @p id is out of range.
 SPIRef SPIOpen( SPIID id ) {
     if ( id >= SPIBusCount ) return NULL;
     return &instances[ id ];
 }
 
 /// @brief Return the full status bitmask for a specific SPI bus instance.
-/// @param[in] spi Handle returned by SPIOpen().
-/// @return Bitmask of SPIStatusBit flags; 0 if @p spi is NULL.
 uint32_t SPIGetStatus( SPIRef spi ) {
     return ( spi != NULL ) ? osEventFlagsGet( spi->statusHandle ) : 0;
 }
@@ -92,13 +88,6 @@ uint32_t SPIGetStatus( SPIRef spi ) {
 /// Acquires the bus semaphore with zero timeout. Asserts CS before starting
 /// the HAL receive; de-asserts CS automatically from the HAL callback on
 /// completion or error.
-///
-/// @param[in]  spi    Handle returned by SPIOpen().
-/// @param[in]  csPort GPIO port for the chip-select line.
-/// @param[in]  csPin  GPIO pin for the chip-select line.
-/// @param[out] pData  Destination buffer; must remain valid until @p cb fires.
-/// @param[in]  len    Number of bytes to receive.
-/// @param[in]  cb     Completion callback invoked from HAL ISR context.
 /// @warning Do not call from ISR context.
 void SPIReadAsync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16_t len, SPICallback cb ) {
     if ( spi == NULL || pData == NULL || len == 0 ) {
@@ -128,12 +117,6 @@ void SPIReadAsync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pD
 }
 
 /// @brief Start an asynchronous interrupt-driven SPI write.
-/// @param[in] spi    Handle returned by SPIOpen().
-/// @param[in] csPort GPIO port for the chip-select line.
-/// @param[in] csPin  GPIO pin for the chip-select line.
-/// @param[in] pData  Source buffer; must remain valid until @p cb fires.
-/// @param[in] len    Number of bytes to transmit.
-/// @param[in] cb     Completion callback invoked from HAL ISR context.
 /// @warning Do not call from ISR context.
 void SPIWriteAsync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16_t len, SPICallback cb ) {
     if ( spi == NULL || pData == NULL || len == 0 ) {
@@ -166,15 +149,6 @@ void SPIWriteAsync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* p
 ///
 /// The transfer length passed to HAL is max(txLen, rxLen) so the peripheral
 /// clocks the longer phase correctly in full-duplex mode.
-///
-/// @param[in]  spi      Handle returned by SPIOpen().
-/// @param[in]  csPort   GPIO port for the chip-select line.
-/// @param[in]  csPin    GPIO pin for the chip-select line.
-/// @param[in]  pTxData  Transmit buffer; must remain valid until @p cb fires.
-/// @param[in]  txLen    Number of bytes to transmit.
-/// @param[out] pRxData  Receive buffer; must remain valid until @p cb fires.
-/// @param[in]  rxLen    Number of bytes to receive.
-/// @param[in]  cb       Completion callback invoked from HAL ISR context.
 /// @warning Do not call from ISR context.
 void SPITransceiveAsync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pTxData, uint16_t txLen, uint8_t* pRxData, uint16_t rxLen, SPICallback cb ) {
     if ( spi == NULL || pTxData == NULL || pRxData == NULL || txLen == 0 || rxLen == 0 ) {
@@ -204,13 +178,6 @@ void SPITransceiveAsync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8
 }
 
 /// @brief Perform a synchronous blocking SPI read.
-/// @param[in]  spi      Handle returned by SPIOpen().
-/// @param[in]  csPort   GPIO port for the chip-select line.
-/// @param[in]  csPin    GPIO pin for the chip-select line.
-/// @param[out] pData    Destination buffer.
-/// @param[in]  len      Number of bytes to receive.
-/// @param[in]  timeout  Maximum wait in milliseconds.
-/// @return true on success, false on timeout or bus error.
 /// @warning Only call from task context, not ISR.
 bool SPIReadSync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16_t len, uint32_t timeout ) {
     if ( spi == NULL || pData == NULL || len == 0 ) {
@@ -236,13 +203,6 @@ bool SPIReadSync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pDa
 }
 
 /// @brief Perform a synchronous blocking SPI write.
-/// @param[in] spi      Handle returned by SPIOpen().
-/// @param[in] csPort   GPIO port for the chip-select line.
-/// @param[in] csPin    GPIO pin for the chip-select line.
-/// @param[in] pData    Source buffer.
-/// @param[in] len      Number of bytes to transmit.
-/// @param[in] timeout  Maximum wait in milliseconds.
-/// @return true on success, false on timeout or bus error.
 /// @warning Only call from task context, not ISR.
 bool SPIWriteSync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pData, uint16_t len, uint32_t timeout ) {
     if ( spi == NULL || pData == NULL || len == 0 ) {
@@ -268,15 +228,6 @@ bool SPIWriteSync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pD
 }
 
 /// @brief Perform an atomic synchronous write-then-read without CS toggling between phases.
-/// @param[in]  spi      Handle returned by SPIOpen().
-/// @param[in]  csPort   GPIO port for the chip-select line.
-/// @param[in]  csPin    GPIO pin for the chip-select line.
-/// @param[in]  pTxData  Transmit buffer.
-/// @param[in]  txLen    Number of bytes to transmit.
-/// @param[out] pRxData  Receive buffer.
-/// @param[in]  rxLen    Number of bytes to receive.
-/// @param[in]  timeout  Maximum wait in milliseconds.
-/// @return true on success, false on timeout or bus error.
 /// @warning Only call from task context, not ISR.
 bool SPITransceiveSync( SPIRef spi, GPIO_TypeDef* csPort, uint16_t csPin, uint8_t* pTxData, uint16_t txLen, uint8_t* pRxData, uint16_t rxLen, uint32_t timeout ) {
     if ( spi == NULL || pTxData == NULL || pRxData == NULL || txLen == 0 || rxLen == 0 ) {

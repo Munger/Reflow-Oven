@@ -79,7 +79,7 @@ typedef struct FSPartEntry {
     uint8_t  reserved;             ///< Explicit padding — must be 0
     FSMode   mode;                 ///< Unix-style permission mode
     uint8_t  pad[ 2 ];             ///< Align struct to 32 bytes
-} FSPartEntry;
+} FSPartEntry, *FSPartEntryPtr;
 
 // ============================================================================
 // Opaque partition handle
@@ -118,7 +118,7 @@ PartRef PartGetByName( const char* name );
 /// @param part Handle returned by PartGetByIndex() or PartGetByName().
 /// @param out  Struct to populate.
 /// @return FSResultOk, or FSResultInvalid if @p part or @p out is NULL.
-FSResult PartGetEntry( PartRef part, FSPartEntry* out );
+FSResult PartGetEntry( PartRef part, FSPartEntryPtr out );
 
 /// @brief Return the block device on which this partition resides.
 /// @param part Handle returned by PartGetByIndex() or PartGetByName().

@@ -16,11 +16,11 @@
 
 #include <string.h>
 
+#include "I2CAddress.h"
 #include "ThermistorI2C.h"
 #include "I2CManager.h"
 
-/// @brief MCP3221 I2C device address (7-bit, shifted left by 1 for HAL).
-static const uint8_t kMcp3221Addr = 0x4D << 1;
+static const uint16_t kMcp3221Addr = (uint16_t)I2CAddrMCP3221 << 1;
 
 /// @brief NTC table entries cover 0..4096 in steps of 128 ADC counts (33 entries total).
 static const uint16_t kNtcTableStep = 128U;
@@ -113,7 +113,7 @@ void TMI2CProcess( void ) {
             case TMStateIdle:
                 osEventFlagsClear( tm->statusHandle, BIT( FlagTMI2CIODone ) | BIT( FlagTMI2CIOError ) );
                 tm->state = TMStateReadAdc;
-                if ( I2CReadAsync( tm->i2c, kMcp3221Addr, 0, I2C_MEMADD_SIZE_8BIT, (uint8_t*)tm->buffer, 2, TMI2CCallback ) != HAL_OK ) {
+                if ( I2CReceiveAsync( tm->i2c, kMcp3221Addr, (uint8_t*)tm->buffer, 2, TMI2CCallback ) != HAL_OK ) {
                     tm->state = TMStateIdle;
                 }
                 break;
@@ -175,9 +175,6 @@ void TMI2CProcess( void ) {
 /// If an NTC table was supplied at TMI2COpen(), interpolates within the 33-entry
 /// table (128 ADC counts per step). Otherwise uses a linear approximation:
 /// 120°C at ADC=0, 0°C at ADC=4000 (slope ≈ −30 milli-degrees per count).
-///
-/// @param[in] thermistor Handle returned by TMI2COpen().
-/// @return Temperature in milli-degrees Celsius; 0 if @p thermistor is NULL.
 /// @note Safe to call from any task context without blocking.
 Temperature TMI2CGetTemperature( ThermistorI2CRef thermistor ) {
     if ( !thermistor ) return 0;
@@ -196,8 +193,6 @@ Temperature TMI2CGetTemperature( ThermistorI2CRef thermistor ) {
 }
 
 /// @brief Return the most recently read raw 12-bit ADC value.
-/// @param[in] thermistor Handle returned by TMI2COpen().
-/// @return Raw ADC value (0–4095); 0 if @p thermistor is NULL.
 /// @note Safe to call from any task context without blocking.
 AdcRaw TMI2CGetRaw( ThermistorI2CRef thermistor ) {
     return thermistor ? thermistor->latestRaw : 0;

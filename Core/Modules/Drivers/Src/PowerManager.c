@@ -170,8 +170,6 @@ uint32_t PMGetStatus( void ) {
 ///
 /// Records the HAL tick and sets FlagPMSwitchedACLive in the shadow word.
 /// PMProcess() checks for timeout on every tick to detect AC loss.
-///
-/// @param[in] GPIO_Pin HAL pin mask (unused).
 /// @warning ISR context. Must not call any FreeRTOS blocking API.
 void PMHandleZCDInterrupt( uint16_t GPIO_Pin ) {
     UNUSED( GPIO_Pin );
@@ -184,8 +182,6 @@ void PMHandleZCDInterrupt( uint16_t GPIO_Pin ) {
 /// Hardware has already isolated the hot side before this ISR fires (hardware
 /// interlock). This handler mirrors the state in software so that PMProcess()
 /// sees the correct flags on the next tick and raises FlagESTOP.
-///
-/// @param[in] GPIO_Pin HAL pin mask (unused).
 /// @warning ISR context. Must not call any FreeRTOS blocking API.
 void PMHandleEStopInterrupt( uint16_t GPIO_Pin ) {
     UNUSED( GPIO_Pin );

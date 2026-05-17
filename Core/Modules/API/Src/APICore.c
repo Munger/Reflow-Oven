@@ -25,14 +25,14 @@ typedef struct APIPBQueue {
     APIPBPtr head;    ///< Oldest item (dequeue end).
     APIPBPtr tail;    ///< Newest item (enqueue end).
     uint32_t count;   ///< Number of items currently queued.
-} APIPBQueue;
+} APIPBQueue, *APIPBQueuePtr;
 
 /// @brief Singly-linked FIFO queue for serialised output APIBuffer chains.
 typedef struct APIBufferQueue {
     APIBufferPtr head;  ///< Oldest item (dequeue end).
     APIBufferPtr tail;  ///< Newest item (enqueue end).
     uint32_t     count; ///< Number of items currently queued.
-} APIBufferQueue;
+} APIBufferQueue, *APIBufferQueuePtr;
 
 #define APIPB_SIZE sizeof( APIPB )
 
@@ -164,8 +164,6 @@ APIPBPtr AcquirePB( void ) {
 /// Walks the pb->payload chain and calls ReleasePayload() on each node.
 /// The PB remains valid and its payload pointer is set to NULL. Use this when
 /// a handler has finished with the request payload but the response PB is still live.
-///
-/// @param[in] pb  APIPB whose payload chain should be freed; silently ignores NULL.
 void ReleasePBMembers( APIPBPtr pb ) {
     if ( !pb ) return;
     while ( pb->payload ) {
@@ -180,8 +178,6 @@ void ReleasePBMembers( APIPBPtr pb ) {
 ///
 /// Calls ReleasePBMembers() first, then returns the PB. The caller must not
 /// access @p pb after this call.
-///
-/// @param[in] pb  APIPB to release; silently ignores NULL.
 void ReleasePB( APIPBPtr pb ) {
     if ( !pb ) return;
     ReleasePBMembers( pb );
@@ -193,9 +189,6 @@ void ReleasePB( APIPBPtr pb ) {
 /// Notifies the API task via vTaskNotifyGiveFromISR() or xTaskNotifyGive() depending
 /// on whether the call originates from an ISR. This enqueue is the handoff from the
 /// CDC receive path to the request-dispatch loop.
-///
-/// @param[in] q   Target queue; must not be NULL.
-/// @param[in] pb  APIPB to enqueue; must not be NULL.
 void EnqueuePB( APIPBQueueRef q, APIPBPtr pb ) {
     if ( !q || !pb ) return;
     pb->next = NULL;
@@ -223,7 +216,6 @@ void EnqueuePB( APIPBQueueRef q, APIPBPtr pb ) {
 
 /// @brief Remove and return the APIPB at the head of a queue, or NULL if empty.
 ///
-/// @param[in] q  Source queue; returns NULL if q is NULL.
 /// @return Pointer to the dequeued APIPB, or NULL if the queue is empty.
 APIPBPtr DequeuePB( APIPBQueueRef q ) {
     if ( !q ) return NULL;
@@ -242,9 +234,6 @@ APIPBPtr DequeuePB( APIPBQueueRef q ) {
 ///
 /// If the target is the output queue, notifies the API task with bit 0x02 so that
 /// USBSendAll() is called promptly. Works from task or ISR context.
-///
-/// @param[in] q  Target queue; must not be NULL.
-/// @param[in] b  Head of an APIBuffer chain to enqueue; must not be NULL.
 void EnqueueBuffer( APIBufferQueueRef q, APIBufferPtr b ) {
     if ( !q || !b ) return;
     b->next = NULL;
@@ -272,7 +261,6 @@ void EnqueueBuffer( APIBufferQueueRef q, APIBufferPtr b ) {
 
 /// @brief Remove and return the APIBuffer at the head of a queue, or NULL if empty.
 ///
-/// @param[in] q  Source queue; returns NULL if q is NULL.
 /// @return Pointer to the dequeued APIBuffer, or NULL if the queue is empty.
 APIBufferPtr DequeueBuffer( APIBufferQueueRef q ) {
     if ( !q ) return NULL;
@@ -298,8 +286,6 @@ PayloadPtr AcquirePayload( void ) {
 }
 
 /// @brief Zero a Payload node's data array and return it to the pool.
-///
-/// @param[in] p  Payload to release; silently ignores NULL.
 void ReleasePayload( PayloadPtr p ) {
     if ( p ) {
         memset( p->data, 0, API_PAYLOAD_SIZE );
@@ -318,8 +304,6 @@ APIBufferPtr AcquireBuffer( void ) {
 }
 
 /// @brief Zero a transmit APIBuffer and return it to the pool.
-///
-/// @param[in] b  Buffer to release; silently ignores NULL.
 void ReleaseBuffer( APIBufferPtr b ) {
     if ( b ) {
         memset( b->data, 0, API_BUFFER_SIZE );

@@ -16,11 +16,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "I2CAddress.h"
 #include "RotaryEncoder.h"
 #include "I2CManager.h"
 
-/// @brief AS5600 I2C device address (7-bit, shifted left by 1 for HAL).
-static const uint8_t kEncoderAddr = 0x36 << 1;
+static const uint16_t kEncoderAddr = (uint16_t)I2CAddrAS5600 << 1;
 
 // ============================================================================
 // AS5600 register addresses
@@ -80,10 +80,6 @@ void REInitModule( void ) {
 ///
 /// On first call for a given ID: stores @p i2c in the instance. Subsequent calls
 /// with the same ID return the existing instance.
-///
-/// @param[in] id   Encoder identifier.
-/// @param[in] i2c  I2C bus handle returned by I2COpen().
-/// @return Handle to the instance, or NULL if @p id is out of range.
 RotaryEncoderRef REOpen( RotaryEncoderID id, I2CRef i2c ) {
     if ( id >= RotaryEncoderCount ) return NULL;
     RotaryEncoderPtr re = &instances[ id ];
@@ -215,11 +211,9 @@ RotaryEncoderRef REGetRef( RotaryEncoderID id ) {
 }
 
 /// @brief Return the most recently computed velocity.
-/// @param[in] Encoder Handle returned by REOpen().
-/// @return Cached velocity in RPM; 0 if @p Encoder is NULL.
 /// @note Safe to call from any task context without blocking.
-Rpm REGetVelocity( RotaryEncoderRef Encoder ) {
-    return Encoder ? Encoder->current_velocity : 0;
+Rpm REGetVelocity( RotaryEncoderRef encoder ) {
+    return encoder ? encoder->current_velocity : 0;
 }
 
 /// @brief Return the full status bitmask from the private ovenFanStatus flags.

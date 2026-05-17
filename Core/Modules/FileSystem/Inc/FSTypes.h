@@ -118,6 +118,6 @@ typedef struct FSStat {
     FSMode   mode;  ///< Permission bits
     FSUid    uid;   ///< Owner UID
     bool     isDir; ///< True if this entry is a directory
-} FSStat;
+} FSStat, *FSStatPtr;
 
 #endif // FSTYPES_H

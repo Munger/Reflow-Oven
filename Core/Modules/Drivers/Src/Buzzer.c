@@ -126,9 +126,6 @@ static void BuzzerPrepareNote( void ) {
 ///
 /// Configures TIM7 for the requested frequency and starts it. The active flag
 /// is set atomically inside a critical section.
-///
-/// @param[in] frequency Frequency in Hz; pass NoteRest to silence the output pin
-///                      without starting the timer.
 void BuzzerStart( BuzzerFrequency frequency ) {
     if ( frequency == NoteRest ) {
         taskENTER_CRITICAL();
@@ -157,7 +154,6 @@ void BuzzerStop( void ) {
 }
 
 /// @brief Queue a pre-defined melodic pattern for asynchronous ISR-driven playback.
-/// @param[in] pattern Pattern identifier from BuzzerPattern.
 void BuzzerPlay( const BuzzerPattern pattern ) {
     BuzzerPlayMelody( patterns[ ( uint8_t )pattern ] );
 }
@@ -166,8 +162,6 @@ void BuzzerPlay( const BuzzerPattern pattern ) {
 ///
 /// Loads the melody into the sequencer and starts TIM7. The function returns
 /// immediately; the ISR advances through notes autonomously.
-///
-/// @param[in] melody Pointer to a Melody struct. Must have at least one tone entry.
 /// @warning The melody pointer must remain valid for the entire playback duration.
 void BuzzerPlayMelody( const Melody* melody ) {
     if ( !melody || melody->length == 0 ) return;

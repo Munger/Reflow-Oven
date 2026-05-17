@@ -70,6 +70,11 @@ typedef enum {
     FlagBoardFanReady,           ///< Board cooling fan (DC, EMC2101) ready.
     FlagTriacReady,              ///< TRIAC phase-angle driver ready.
     FlagFlashReady,              ///< External NOR flash init and verified.
+    FlagHeaterTopReady,          ///< Top heating element TRIAC channel ready.
+    FlagHeaterRearReady,         ///< Rear heating element TRIAC channel ready.
+    FlagHeaterBottomReady,       ///< Bottom heating element TRIAC channel ready.
+    FlagOvenLightReady,          ///< Oven interior light TRIAC channel ready.
+    FlagOvenControllerReady,     ///< Oven controller initialised and all device refs valid.
 
     DeviceFlagsCount             ///< Number of flags — must stay <= 24.
 } DeviceFlagsBit;
@@ -108,6 +113,11 @@ typedef enum {
     FlagSPIFault,                ///< SPI bus error or timeout.
     FlagTriacFault,              ///< TRIAC gate or ZCD fault.
     FlagFlashFault,              ///< NOR flash SPI error or JEDEC ID mismatch.
+    FlagHeaterTopFault,          ///< Top heating element TRIAC configuration error.
+    FlagHeaterRearFault,         ///< Rear heating element TRIAC configuration error.
+    FlagHeaterBottomFault,       ///< Bottom heating element TRIAC configuration error.
+    FlagOvenLightFault,          ///< Oven interior light TRIAC configuration error.
+    FlagOvenControllerFault,     ///< Oven controller regulation fault or required sensor failure.
 
     FaultFlagsCount              ///< Number of flags — must stay <= 24.
 } FaultFlagsBit;
@@ -132,7 +142,12 @@ typedef enum {
     BIT( FlagOvenFanReady )            | \
     BIT( FlagBoardFanReady )           | \
     BIT( FlagTriacReady )              | \
-    BIT( FlagFlashReady )               \
+    BIT( FlagFlashReady )              | \
+    BIT( FlagHeaterTopReady )          | \
+    BIT( FlagHeaterRearReady )         | \
+    BIT( FlagHeaterBottomReady )       | \
+    BIT( FlagOvenLightReady )          | \
+    BIT( FlagOvenControllerReady )      \
 )
 
 /// @brief Bitmask of all fault flags. ManagerTask uses this to wait on any fault.
@@ -154,7 +169,12 @@ typedef enum {
     BIT( FlagI2CFault )                | \
     BIT( FlagSPIFault )                | \
     BIT( FlagTriacFault )              | \
-    BIT( FlagFlashFault )               \
+    BIT( FlagFlashFault )              | \
+    BIT( FlagHeaterTopFault )          | \
+    BIT( FlagHeaterRearFault )         | \
+    BIT( FlagHeaterBottomFault )       | \
+    BIT( FlagOvenLightFault )          | \
+    BIT( FlagOvenControllerFault )      \
 )
 
 /// @brief System milestone event flag group. Created by app_freertos.c at startup.

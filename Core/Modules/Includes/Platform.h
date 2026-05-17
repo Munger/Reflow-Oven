@@ -1,4 +1,4 @@
-/// @file pPatform.h
+/// @file Platform.h
 ///
 /// @brief Platform abstraction header — pulls in the STM32G0 HAL.
 ///

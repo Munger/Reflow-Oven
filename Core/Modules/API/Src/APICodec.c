@@ -157,9 +157,6 @@ static void TerminateRequest( TerminatorType term ) {
 /// Consecutive spaces are collapsed. CR/LF handling supports bare CR, bare LF,
 /// and CRLF sequences that may span buffer boundaries. Called directly from the
 /// CDC_Receive_FS() USB ISR callback.
-///
-/// @param[in] data  Received bytes.
-/// @param[in] len   Number of bytes in @p data.
 void ProcessStream( const uint8_t* data, uint32_t len ) {
     for ( uint32_t i = 0; i < len; i++ ) {
         char c = (char)data[ i ];
@@ -189,9 +186,13 @@ void ProcessStream( const uint8_t* data, uint32_t len ) {
             continue;
         }
 
-        // Bare LF or null
-        if ( c == '\n' || c == '\0' ) {
+        if ( c == '\n' ) {
             TerminateRequest( TypeLF );
+            continue;
+        }
+
+        if ( c == '\0' ) {
+            TerminateRequest( TypeZero );
             continue;
         }
 
@@ -395,6 +396,7 @@ static inline void AppendTerminator( SerialState* state, TerminatorType term ) {
     switch ( term ) {
         case TypeCRLF: AppendBlock( state, "\r\n", 2 ); break;
         case TypeCR:   AppendBlock( state, "\r",   1 ); break;
+        case TypeZero: AppendBlock( state, "\0",   1 ); break;
         case TypeLF:
         default:       AppendBlock( state, "\n",   1 ); break;
     }
@@ -402,7 +404,7 @@ static inline void AppendTerminator( SerialState* state, TerminatorType term ) {
 
 /// @brief Serialise @p pb as a JSON object and enqueue the result for transmission.
 ///
-/// Format: { "status": NNN, "message": "...", "data": <payload or null> }\r\n
+/// Format: { "status": NNN, "message": "...", "data": payload_or_null } CR LF
 /// The terminator type is echoed from the original request.
 /// Releases all acquired buffers and returns false on allocation failure.
 ///
@@ -450,7 +452,7 @@ static bool SerialiseAPI( APIPBPtr pb ) {
 
 /// @brief Serialise @p pb as a human-readable CLI response and enqueue for transmission.
 ///
-/// Format: \r\n[OK] <payload>\r\n>   or   \r\n[ERR] <payload>\r\n>
+/// Format: CR LF [OK] payload CR LF >   or   CR LF [ERR] payload CR LF >
 /// The prompt suffix keeps the terminal in an interactive state. Status codes
 /// below 400 are treated as success.
 ///
@@ -494,8 +496,6 @@ static bool SerialiseCLI( APIPBPtr pb ) {
 /// Dispatches to SerialiseAPI() for API_MODE_API or SerialiseCLI() for all other
 /// origins. Releases the payload chain after serialisation; the caller remains
 /// responsible for returning the PB itself via ReleasePB().
-///
-/// @param[in] pb  APIPB with status, origin, terminator, and optional payload set.
 void APIQueueForSend( APIPBPtr pb ) {
     if ( !pb ) return;
 

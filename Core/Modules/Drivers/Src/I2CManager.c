@@ -56,21 +56,18 @@ void I2CInitModule( void ) {
         osEventFlagsSet( i2c->statusHandle, BIT( FlagI2CStatusReady ) );
     }
 
-    HAL_I2C_RegisterCallback( i2c->hi2c, HAL_I2C_MEM_RX_COMPLETE_CB_ID, TransferComplete );
-    HAL_I2C_RegisterCallback( i2c->hi2c, HAL_I2C_ERROR_CB_ID,           TransferError );
+    HAL_I2C_RegisterCallback( i2c->hi2c, HAL_I2C_MEM_RX_COMPLETE_CB_ID,    TransferComplete );
+    HAL_I2C_RegisterCallback( i2c->hi2c, HAL_I2C_MASTER_RX_COMPLETE_CB_ID, TransferComplete );
+    HAL_I2C_RegisterCallback( i2c->hi2c, HAL_I2C_ERROR_CB_ID,              TransferError );
 }
 
 /// @brief Return a handle to a specific I2C bus instance.
-/// @param[in] id Bus identifier.
-/// @return Handle to the instance, or NULL if @p id is out of range.
 I2CRef I2COpen( I2CID id ) {
     if ( id >= I2CBusCount ) return NULL;
     return &instances[ id ];
 }
 
 /// @brief Return the full status bitmask for a specific I2C bus instance.
-/// @param[in] i2c Handle returned by I2COpen().
-/// @return Bitmask of I2CStatusBit flags; 0 if @p i2c is NULL.
 uint32_t I2CGetStatus( I2CRef i2c ) {
     return ( i2c != NULL ) ? osEventFlagsGet( i2c->statusHandle ) : 0;
 }
@@ -80,15 +77,6 @@ uint32_t I2CGetStatus( I2CRef i2c ) {
 /// Acquires the bus semaphore with zero timeout (non-blocking). If the bus is
 /// already in use, returns HAL_BUSY immediately without modifying state.
 /// On HAL failure, the semaphore is released and the status flags are updated.
-///
-/// @param[in]  i2c     Handle returned by I2COpen().
-/// @param[in]  devAddr 7-bit device address shifted left by 1.
-/// @param[in]  memAddr Register or memory address to read from.
-/// @param[in]  size    Memory address size (I2C_MEMADD_SIZE_8BIT or _16BIT).
-/// @param[out] pData   Destination buffer; must remain valid until @p cb fires.
-/// @param[in]  len     Number of bytes to read.
-/// @param[in]  cb      Completion callback invoked from HAL ISR context.
-/// @return HAL_OK if queued, HAL_BUSY if bus is in use.
 /// @warning Do not call from ISR context.
 HAL_StatusTypeDef I2CReadAsync( I2CRef i2c, uint16_t devAddr, uint16_t memAddr, uint16_t size,
                                 uint8_t* pData, uint16_t len, I2CCallback cb ) {
@@ -113,20 +101,65 @@ HAL_StatusTypeDef I2CReadAsync( I2CRef i2c, uint16_t devAddr, uint16_t memAddr, 
     return status;
 }
 
+/// @brief Start an asynchronous interrupt-driven master receive (no register address).
+///
+/// Use this for read-only devices that have no register address byte in their
+/// protocol (e.g. MCP3221). Acquires the bus semaphore with zero timeout — if the
+/// bus is in use, returns HAL_BUSY immediately.
+/// @warning Do not call from ISR context.
+HAL_StatusTypeDef I2CReceiveAsync( I2CRef i2c, uint16_t devAddr,
+                                   uint8_t* pData, uint16_t len, I2CCallback cb ) {
+    if ( i2c == NULL ) return HAL_ERROR;
+
+    if ( osSemaphoreAcquire( i2c->mutex, 0 ) != osOK ) {
+        return HAL_BUSY;
+    }
+
+    i2c->currentCallback = cb;
+
+    HAL_StatusTypeDef status = HAL_I2C_Master_Receive_IT( i2c->hi2c, devAddr, pData, len );
+
+    if ( status != HAL_OK ) {
+        osSemaphoreRelease( i2c->mutex );
+
+        if ( status == HAL_BUSY && i2c->statusHandle != NULL ) {
+            osEventFlagsSet( i2c->statusHandle, BIT( FlagI2CStatusLocked ) );
+        }
+    }
+
+    return status;
+}
+
+/// @brief Perform a synchronous blocking master receive (no register address).
+///
+/// Use this for read-only devices that have no register address byte in their
+/// protocol (e.g. MCP3221). Acquires the bus semaphore for up to @p timeout
+/// milliseconds.
+/// @warning Only call from task context, not ISR.
+HAL_StatusTypeDef I2CReceiveSync( I2CRef i2c, uint16_t devAddr,
+                                  uint8_t* pData, uint16_t len, uint32_t timeout ) {
+    if ( i2c == NULL ) return HAL_ERROR;
+
+    if ( osSemaphoreAcquire( i2c->mutex, timeout ) != osOK ) {
+        return HAL_BUSY;
+    }
+
+    HAL_StatusTypeDef status = HAL_I2C_Master_Receive( i2c->hi2c, devAddr, pData, len, timeout );
+
+    if ( status != HAL_OK && i2c->statusHandle != NULL ) {
+        osEventFlagsSet( i2c->statusHandle, BIT( FlagI2CStatusBusError ) );
+        osEventFlagsSet( FaultFlagsHandle, BIT( FlagI2CFault ) );
+    }
+
+    osSemaphoreRelease( i2c->mutex );
+    return status;
+}
+
 /// @brief Perform a synchronous blocking memory read.
 ///
 /// Acquires the bus semaphore for up to @p timeout milliseconds. On success,
 /// issues a HAL blocking read and releases the semaphore on return.
 /// Any HAL error is reflected in the local status flags and in FaultFlagsHandle.
-///
-/// @param[in]  i2c     Handle returned by I2COpen().
-/// @param[in]  devAddr 7-bit device address shifted left by 1.
-/// @param[in]  memAddr Register or memory address to read from.
-/// @param[in]  size    Memory address size (I2C_MEMADD_SIZE_8BIT or _16BIT).
-/// @param[out] pData   Destination buffer.
-/// @param[in]  len     Number of bytes to read.
-/// @param[in]  timeout Maximum wait in milliseconds for the semaphore and transfer.
-/// @return HAL_OK on success, HAL_BUSY if semaphore timed out, HAL_ERROR on bus fault.
 /// @warning Only call from task context, not ISR.
 HAL_StatusTypeDef I2CReadSync( I2CRef i2c, uint16_t devAddr, uint16_t memAddr, uint16_t size,
                                uint8_t* pData, uint16_t len, uint32_t timeout ) {
@@ -152,15 +185,6 @@ HAL_StatusTypeDef I2CReadSync( I2CRef i2c, uint16_t devAddr, uint16_t memAddr, u
 /// Acquires the bus semaphore for up to @p timeout milliseconds. On success,
 /// issues a HAL blocking write and releases the semaphore on return.
 /// Any HAL error is reflected in the local status flags and in FaultFlagsHandle.
-///
-/// @param[in] i2c     Handle returned by I2COpen().
-/// @param[in] devAddr 7-bit device address shifted left by 1.
-/// @param[in] memAddr Register or memory address to write to.
-/// @param[in] size    Memory address size (I2C_MEMADD_SIZE_8BIT or _16BIT).
-/// @param[in] pData   Source buffer.
-/// @param[in] len     Number of bytes to write.
-/// @param[in] timeout Maximum wait in milliseconds for the semaphore and transfer.
-/// @return HAL_OK on success, HAL_BUSY if semaphore timed out, HAL_ERROR on bus fault.
 /// @warning Only call from task context, not ISR.
 HAL_StatusTypeDef I2CWriteSync( I2CRef i2c, uint16_t devAddr, uint16_t memAddr, uint16_t size,
                                 uint8_t* pData, uint16_t len, uint32_t timeout ) {

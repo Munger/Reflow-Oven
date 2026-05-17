@@ -63,9 +63,6 @@ MCURef MCUOpen( MCUID id ) {
 /// Uses the STM32 VREFINT_CAL_ADDR factory calibration value at 3.0 V to
 /// back-calculate the actual supply voltage. Returns the last cached value if
 /// the ADC reads zero (prevents division by zero on startup).
-///
-/// @param[in] mcu Handle returned by MCUOpen().
-/// @return VCC in millivolts; returns last cached value if ADC is zero.
 /// @note Pure computation from DMA buffer — safe to call from any task context.
 Voltage MCUGetVcc( MCURef mcu ) {
     if ( mcu == NULL ) return 0;
@@ -80,9 +77,6 @@ Voltage MCUGetVcc( MCURef mcu ) {
 /// Applies the two-point factory calibration (TEMPSENSOR_CAL1 / CAL2) after
 /// scaling the raw ADC count by the actual VCC ratio. Returns the last cached
 /// value if VCC has not yet been measured.
-///
-/// @param[in] mcu Handle returned by MCUOpen().
-/// @return Junction temperature in milli-degrees Celsius.
 /// @note Pure computation from DMA buffer — safe to call from any task context.
 Temperature MCUGetInternalTemp( MCURef mcu ) {
     if ( mcu == NULL ) return 0;
@@ -99,9 +93,6 @@ Temperature MCUGetInternalTemp( MCURef mcu ) {
 ///
 /// The STM32G0 connects VBAT/3 to the ADC; this function multiplies back by 3.
 /// Relies on lastVcc being populated by MCUGetVcc() first.
-///
-/// @param[in] mcu Handle returned by MCUOpen().
-/// @return Battery voltage in millivolts; 0 if @p mcu is NULL.
 /// @note Pure computation from DMA buffer — safe to call from any task context.
 Voltage MCUGetBatteryVoltage( MCURef mcu ) {
     if ( mcu == NULL ) return 0;
@@ -113,9 +104,6 @@ Voltage MCUGetBatteryVoltage( MCURef mcu ) {
 ///
 /// Maps the battery voltage linearly between 3.0 V (0 permille) and
 /// 4.2 V (1000 permille) with hard clamps at both ends.
-///
-/// @param[in] mcu Handle returned by MCUOpen().
-/// @return 0 (empty) to 1000 (full); 0 if @p mcu is NULL.
 /// @note Safe to call from any task context.
 Permille MCUGetBatteryLevel( MCURef mcu ) {
     Voltage vbat = MCUGetBatteryVoltage( mcu );
@@ -136,9 +124,6 @@ uint32_t MCUGetStatus( MCURef mcu ) {
 /// Calls HAL_RTC_GetTime and HAL_RTC_GetDate (which must be called in that
 /// order per HAL requirements). Silently returns without modifying @p time on
 /// HAL error.
-///
-/// @param[in]  mcu  Handle returned by MCUOpen().
-/// @param[out] time Struct to populate with the current time and date.
 /// @note Fast register read — no blocking. Safe to call from any task context.
 void MCUGetTime( MCURef mcu, MCUTimePtr time ) {
     UNUSED( mcu );
@@ -160,9 +145,6 @@ void MCUGetTime( MCURef mcu, MCUTimePtr time ) {
 ///
 /// Copies @p time into pendingTime inside a critical section to ensure the
 /// multi-field write is atomic with respect to the task scheduler.
-///
-/// @param[in] mcu  Handle returned by MCUOpen().
-/// @param[in] time New time to apply on the next MCUProcess() tick.
 void MCUSetTime( MCURef mcu, const MCUTimePtr time ) {
     if ( mcu == NULL || time == NULL ) return;
     taskENTER_CRITICAL();

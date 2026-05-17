@@ -46,7 +46,7 @@ typedef struct FSFileHandle {
     lfs_file_t         lfsFile;
     struct lfs_file_config lfsFileCfg;
     uint8_t            fileBuf[ kFileCacheSize ];
-} FSFileHandle;
+} FSFileHandle, *FSFileHandlePtr;
 
 static FSFileHandle handlePool[ kFileMaxOpen ];
 
@@ -54,7 +54,7 @@ static FSFileHandle handlePool[ kFileMaxOpen ];
 // Private helpers
 // ============================================================================
 
-static FSFileHandle* AllocHandle( void ) {
+static FSFileHandlePtr AllocHandle( void ) {
     for ( uint8_t i = 0; i < kFileMaxOpen; i++ ) {
         if ( !handlePool[ i ].inUse ) {
             memset( &handlePool[ i ], 0, sizeof( handlePool[ i ] ) );
@@ -65,7 +65,7 @@ static FSFileHandle* AllocHandle( void ) {
     return NULL;
 }
 
-static void FreeHandle( FSFileHandle* h ) {
+static void FreeHandle( FSFileHandlePtr h ) {
     if ( h ) h->inUse = false;
 }
 
@@ -163,7 +163,7 @@ FileRef FileOpen( const char* path, FSOpenFlags flags, FSUid uid ) {
         return NULL;
     }
 
-    FSFileHandle* h = AllocHandle();
+    FSFileHandlePtr h = AllocHandle();
     if ( h == NULL ) return NULL;
 
     h->volume    = vol;
@@ -259,7 +259,7 @@ FSResult FileTell( FileRef file, uint32_t* pos ) {
 // Public API — directory and metadata
 // ============================================================================
 
-FSResult FileStat( const char* path, FSUid uid, FSStat* stat ) {
+FSResult FileStat( const char* path, FSUid uid, FSStatPtr stat ) {
     if ( path == NULL || stat == NULL ) return FSResultInvalid;
     const char* relPath;
     VolRef vol = VolResolve( path, &relPath );

@@ -72,7 +72,7 @@ typedef struct Thermistor {
     uint8_t          bufferIndex;    ///< Index into AdcDataBuffer for this channel
     osEventFlagsId_t flags;          ///< Private event flag group for this instance
     uint32_t         globalFaultBit; ///< BIT(FlagXxx) to set/clear in FaultFlagsHandle
-} Thermistor;
+} Thermistor, *ThermistorPtr;
 
 /// @brief Thermistor instance array indexed by ThermistorID.
 static Thermistor instances[ ThermistorCount ];
@@ -119,8 +119,6 @@ void TMInitModule( void ) {
 }
 
 /// @brief Open a handle to a specific thermistor channel.
-/// @param[in] thermistorID Channel identifier.
-/// @return Pointer to the Thermistor instance, or NULL if out of range.
 ThermistorRef TMOpen( ThermistorID thermistorID ) {
     if ( thermistorID >= ThermistorCount ) return NULL;
     return &instances[ thermistorID ];
@@ -131,9 +129,6 @@ ThermistorRef TMOpen( ThermistorID thermistorID ) {
 /// Reads the raw 12-bit ADC value directly from AdcDataBuffer, selects the
 /// appropriate lookup table (oven vs CJT), computes the table index and fractional
 /// remainder, then applies linear interpolation between adjacent entries.
-///
-/// @param[in] thermistor Handle returned by TMOpen().
-/// @return Interpolated temperature in milli-degrees Celsius; 0 if @p thermistor is NULL.
 /// @note Pure computation — no flag side-effects. Safe to call from any task context.
 Temperature TMGetTemperature( ThermistorRef thermistor ) {
     if ( !thermistor ) return 0;
@@ -164,7 +159,7 @@ void TMProcess( void ) {
     bool hwError = ( HAL_ADC_GetState( pAdcHandle ) & HAL_ADC_STATE_ERROR );
 
     for ( uint8_t i = 0; i < ThermistorCount; i++ ) {
-        Thermistor* tm = &instances[ i ];
+        ThermistorPtr tm = &instances[ i ];
         AdcRaw raw = AdcDataBuffer[ tm->bufferIndex ];
 
         uint32_t set   = BIT( FlagTMStatusReady );
@@ -212,8 +207,6 @@ void TMProcess( void ) {
 }
 
 /// @brief Return the current status bitmask for a specific thermistor instance.
-/// @param[in] thermistor Handle returned by TMOpen().
-/// @return Bitmask of TMStatusBit flags; 0 if @p thermistor is NULL.
 /// @note Safe to call from any task context without blocking.
 uint32_t TMGetStatus( ThermistorRef thermistor ) {
     return ( thermistor ) ? osEventFlagsGet( thermistor->flags ) : 0;

@@ -51,9 +51,9 @@ void                           EnqueuePB( APIPBQueueRef q, APIPBPtr pb );
 APIPBPtr                       DequeuePB( APIPBQueueRef q );
 
 /// @brief Append an APIBuffer chain to the tail of @p q; notifies the API task if q is the output queue.
-/// @param[in] q   Target queue.
-/// @param[in] pb  Head of the APIBuffer chain to enqueue.
-void                           EnqueueBuffer( APIBufferQueueRef q, APIBufferPtr pb );
+/// @param[in] q  Target queue.
+/// @param[in] b  Head of the APIBuffer chain to enqueue.
+void                           EnqueueBuffer( APIBufferQueueRef q, APIBufferPtr b );
 
 /// @brief Remove and return the APIBuffer at the head of @p q, or NULL if empty.
 /// @param[in] q  Source queue.
@@ -65,8 +65,8 @@ APIBufferPtr                   DequeueBuffer( APIBufferQueueRef q );
 PayloadPtr                     AcquirePayload( void );
 
 /// @brief Return a Payload node to the pool after zeroing its data array.
-/// @param[in] payload  Payload to release; ignores NULL.
-void                           ReleasePayload( PayloadPtr payload );
+/// @param[in] p  Payload to release; ignores NULL.
+void                           ReleasePayload( PayloadPtr p );
 
 /// @brief Release all Payload nodes attached to @p pb without returning the PB itself.
 /// @param[in] pb  APIPB whose payload chain should be freed; ignores NULL.
@@ -77,8 +77,8 @@ void                           ReleasePBMembers( APIPBPtr pb );
 APIBufferPtr                   AcquireBuffer( void );
 
 /// @brief Return a transmit APIBuffer to the pool after zeroing its data and resetting length.
-/// @param[in] buffer  Buffer to release; ignores NULL.
-void                           ReleaseBuffer( APIBufferPtr buffer );
+/// @param[in] b  Buffer to release; ignores NULL.
+void                           ReleaseBuffer( APIBufferPtr b );
 
 /// @brief Live diagnostics snapshot for the API memory engine.
 typedef struct APICoreStats {
@@ -103,7 +103,7 @@ typedef struct APICoreStats {
     size_t   pbMemUsed;      ///< Total bytes currently in use for APIPBs.
     size_t   payloadMemUsed; ///< Total bytes currently in use for Payloads.
     size_t   bufferMemUsed;  ///< Total bytes currently in use for APIBuffers.
-} APICoreStats;
+} APICoreStats, *APICoreStatsPtr;
 
 /// @brief Read-only pointer to the internal APICoreStats snapshot.
 typedef const APICoreStats* APICoreStatsRef;

@@ -61,7 +61,7 @@ osThreadId_t ManagerTaskHandle;
 const osThreadAttr_t ManagerTask_attributes = {
   .name = "ManagerTask",
   .priority = (osPriority_t) osPriorityHigh,
-  .stack_size = 128 * 4
+  .stack_size = 384 * 4
 };
 /* Definitions for DeviceTask */
 osThreadId_t DeviceTaskHandle;

@@ -1,23 +1,30 @@
 /// @file USBPDTask.c
 ///
-/// @brief USBPD task — intentional hollow placeholder.
+/// @brief USB Power Delivery task — independent process loop.
 ///
-/// This task stub is a CubeMX-generated thread kept for future use.
-/// USBPD initialisation and processing are handled by ManagerTask and
-/// DeviceTask respectively. This task blocks indefinitely and performs no work.
+/// Runs USBPDProcess() on a fixed 10 ms tick, independent of DeviceTask and
+/// all other peripherals. This guarantees that role detection, fault autopsy,
+/// voltage requests, and telemetry refresh are serviced regardless of system
+/// load on other tasks.
 ///
 /// @copyright Copyright (c) 2026 Tim Hosking
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
 #include "USBPDTask.h"
+#include "SystemStatusFlags.h"
+#include "USBPowerDelivery.h"
 
-/// @brief No-op initialiser for the USBPD placeholder task.
+enum { kUSBPDTickMs = 10 };
+
+/// @brief Waits for system initialisation before starting the PD process loop.
 void USBPDTaskInit( void ) {
+    osEventFlagsWait( SystemStatusFlagsHandle, BIT( FlagSystemInitialised ),
+                      osFlagsWaitAll | osFlagsNoClear, osWaitForever );
 }
 
-/// @brief USBPD placeholder task loop — blocks indefinitely.
-/// @note Intentionally empty. All USBPD work is done in DeviceTaskLoop().
+/// @brief Drive the PD policy engine at a fixed 10 ms tick.
 void USBPDTaskLoop( void ) {
-    osDelay( portMAX_DELAY );
+    osDelay( kUSBPDTickMs );
+    USBPDProcess();
 }

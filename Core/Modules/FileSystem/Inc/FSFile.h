@@ -100,7 +100,7 @@ FSResult FileTell( FileRef file, uint32_t* pos );
 /// @param uid  Caller's UID.
 /// @param stat Struct to populate.
 /// @return FSResultOk, FSResultNotFound, or FSResultPermission.
-FSResult FileStat( const char* path, FSUid uid, FSStat* stat );
+FSResult FileStat( const char* path, FSUid uid, FSStatPtr stat );
 
 /// @brief Delete a file or empty directory.
 ///

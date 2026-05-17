@@ -53,7 +53,7 @@ typedef struct FSVolume {
     uint8_t           readBuf[ kLfsCacheSize ];
     uint8_t           progBuf[ kLfsCacheSize ];
     uint8_t           lookaheadBuf[ kLfsLookahead ];
-} FSVolume;
+} FSVolume, *FSVolumePtr;
 
 #define BIT_SHIFT( n ) ( 1UL << (uint32_t)( n ) )
 
@@ -85,7 +85,7 @@ void VolDecrementOpenFiles( VolRef vol ) {
 // Private helpers
 // ============================================================================
 
-static FSVolume* AllocVolume( void ) {
+static FSVolumePtr AllocVolume( void ) {
     for ( uint8_t i = 0; i < kVolMaxCount; i++ ) {
         if ( !( pool[ i ].statusBits & BIT_SHIFT( FlagVolMounted ) ) ) {
             memset( &pool[ i ], 0, sizeof( pool[ i ] ) );
@@ -95,7 +95,7 @@ static FSVolume* AllocVolume( void ) {
     return NULL;
 }
 
-static bool IsReadOnly( const VolRef vol, const FSPartEntry* entry ) {
+static bool IsReadOnly( const VolRef vol, const FSPartEntryPtr entry ) {
     if ( vol->mountFlags & FSMountReadOnly )          return true;
     if ( entry->flags & (uint8_t)FSPartFlagReadOnly ) return true;
     return false;
@@ -111,7 +111,7 @@ VolRef VolMount( PartRef part, FSMountFlags flags ) {
     FSPartEntry entry;
     if ( PartGetEntry( part, &entry ) != FSResultOk ) return NULL;
 
-    FSVolume* vol = AllocVolume();
+    FSVolumePtr vol = AllocVolume();
     if ( vol == NULL ) return NULL;
 
     vol->partition      = part;

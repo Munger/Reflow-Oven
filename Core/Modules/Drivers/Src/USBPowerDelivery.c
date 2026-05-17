@@ -18,6 +18,7 @@
 #include "task.h"
 #include "cmsis_os.h"
 #include "main.h"
+#include "I2CAddress.h"
 #include "I2CManager.h"
 #include "USBPowerDelivery.h"
 
@@ -25,19 +26,19 @@
 // TCPP03 I2C device address and register map
 // ============================================================================
 
-static const uint8_t kTcpp03Addr    = 0x68 << 1; ///< 7-bit address shifted left by 1.
-static const uint8_t kTcpp03Conf1   = 0x00U;      ///< Configuration register 1.
-static const uint8_t kTcpp03OvpSet  = 0x01U;      ///< Over-voltage protection threshold.
-static const uint8_t kTcpp03VsenseH = 0x08U;      ///< VBUS voltage sense MSB.
-static const uint8_t kTcpp03IsenseH = 0x0AU;      ///< VBUS current sense MSB.
+static const uint16_t kTcpp03Addr    = (uint16_t)I2CAddrTCPP03 << 1;
+static const uint8_t  kTcpp03Conf1   = 0x00U; ///< Configuration register 1.
+static const uint8_t  kTcpp03OvpSet  = 0x01U; ///< Over-voltage protection threshold.
+static const uint8_t  kTcpp03VsenseH = 0x08U; ///< VBUS voltage sense MSB.
+static const uint8_t  kTcpp03IsenseH = 0x0AU; ///< VBUS current sense MSB.
 
 // ============================================================================
 // STPD01 I2C device address and register map
 // ============================================================================
 
-static const uint8_t kStpd01Addr      = 0x28 << 1; ///< 7-bit address shifted left by 1.
-static const uint8_t kStpd01Vsel      = 0x00U;      ///< Voltage selection register.
-static const uint8_t kStpd01StatusReg = 0x02U;      ///< Status / fault register.
+static const uint16_t kStpd01Addr      = (uint16_t)I2CAddrSTPD01 << 1;
+static const uint8_t  kStpd01Vsel      = 0x00U; ///< Voltage selection register.
+static const uint8_t  kStpd01StatusReg = 0x02U; ///< Status / fault register.
 
 static const uint8_t kVbusScaleFactor = 5U; ///< Converts TCPP03 VSENSE reading to millivolts.
 static const uint8_t kIbusScaleFactor = 2U; ///< Converts TCPP03 ISENSE reading to milliamps.
@@ -113,8 +114,6 @@ USBPDRef USBPDOpen( USBPDID id, I2CRef i2c ) {
 /// De-asserts PD_SRC_PON to shut down the source output and sets FlagUSBPDFaultDetected.
 /// I2C fault autopsy is deferred to USBPDProcess(). FaultFlagsHandle is synced by
 /// USBPDProcess() on the next tick.
-///
-/// @param[in] GPIO_Pin  HAL pin mask (unused).
 /// @warning ISR context. GPIO write and osEventFlagsSet() only — no I2C access.
 void USBPDHandleFLGNInterrupt( uint16_t GPIO_Pin ) {
     UNUSED( GPIO_Pin );
@@ -126,8 +125,6 @@ void USBPDHandleFLGNInterrupt( uint16_t GPIO_Pin ) {
 ///
 /// Sets FlagUSBPDSourceFaultPending so that USBPDProcess() reads the STPD01 status
 /// register on the next tick. The I2C read cannot happen in ISR context.
-///
-/// @param[in] GPIO_Pin  HAL pin mask (unused).
 /// @warning ISR context. osEventFlagsSet() only — no I2C access.
 void USBPDHandleSourceInterrupt( uint16_t GPIO_Pin ) {
     UNUSED( GPIO_Pin );
@@ -213,15 +210,11 @@ void USBPDProcess( void ) {
 }
 
 /// @brief Return the raw diagnostic flag bits for this USBPD instance.
-/// @param[in] pd Handle returned by USBPDOpen().
-/// @return Bitmask of USBPDStatusBit values; 0 if @p pd is NULL.
 uint32_t USBPDGetStatus( USBPDRef pd ) {
     return pd ? osEventFlagsGet( pd->statusHandle ) : 0;
 }
 
 /// @brief Return the number of power profiles currently available.
-/// @param[in] pd Handle returned by USBPDOpen().
-/// @return 4 when Source (local profiles); partner count when Sink; 0 if @p pd is NULL.
 uint8_t USBPDGetProfileCount( USBPDRef pd ) {
     if ( pd == NULL ) return 0;
     return ( osEventFlagsGet( pd->statusHandle ) & BIT( FlagUSBPDRoleSource ) )
@@ -229,9 +222,6 @@ uint8_t USBPDGetProfileCount( USBPDRef pd ) {
 }
 
 /// @brief Return a specific power profile by index.
-/// @param[in] pd     Handle returned by USBPDOpen().
-/// @param[in] index  Zero-based index into the profile list.
-/// @return Requested profile, or zero-initialised struct if out of range or @p pd is NULL.
 USBPDPowerProfile USBPDGetProfile( USBPDRef pd, uint8_t index ) {
     if ( pd != NULL ) {
         if ( osEventFlagsGet( pd->statusHandle ) & BIT( FlagUSBPDRoleSource ) ) {
@@ -247,9 +237,6 @@ USBPDPowerProfile USBPDGetProfile( USBPDRef pd, uint8_t index ) {
 ///
 /// Writes pendingVoltage then sets FlagUSBPDVoltagePending. Sequential execution
 /// on Cortex-M0+ guarantees the value is visible before the flag is observed.
-///
-/// @param[in] pd      Handle returned by USBPDOpen().
-/// @param[in] target  Requested voltage in millivolts.
 void USBPDRequestVoltage( USBPDRef pd, Voltage target ) {
     if ( pd == NULL ) return;
     pd->pendingVoltage = target;
@@ -257,15 +244,11 @@ void USBPDRequestVoltage( USBPDRef pd, Voltage target ) {
 }
 
 /// @brief Return the most recently measured VBUS voltage.
-/// @param[in] pd Handle returned by USBPDOpen().
-/// @return Cached voltage in millivolts; 0 if @p pd is NULL.
 Voltage USBPDGetLiveVoltage( USBPDRef pd ) {
     return pd ? pd->cachedVoltage : 0;
 }
 
 /// @brief Return the most recently measured VBUS current.
-/// @param[in] pd Handle returned by USBPDOpen().
-/// @return Cached current in milliamps; 0 if @p pd is NULL.
 Current USBPDGetLiveCurrent( USBPDRef pd ) {
     return pd ? pd->cachedCurrent : 0;
 }

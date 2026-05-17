@@ -32,7 +32,7 @@ typedef struct FSGeometry {
     uint32_t blockCount; ///< Total number of blocks on the device
     uint32_t readSize;   ///< Minimum readable unit in bytes (typically 1)
     uint32_t progSize;   ///< Minimum programmable unit in bytes (e.g. 256)
-} FSGeometry;
+} FSGeometry, *FSGeometryPtr;
 
 // ============================================================================
 // Opaque handle
@@ -72,7 +72,7 @@ typedef struct BDOps {
     /// @brief Flush any internal cache and confirm the device is idle.
     FSResult ( *sync  )( BDRef bd );
 
-} BDOps;
+} BDOps, *BDOpsPtr;
 
 // ============================================================================
 // Public API

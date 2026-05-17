@@ -64,10 +64,11 @@ typedef enum {
 /// the host-side line discipline receives a consistent output format regardless
 /// of which convention it sent.
 typedef enum {
-    TypeNull, ///< No terminator detected (unused after full parse).
+    TypeNull, ///< No terminator detected (sentinel; unused after a completed parse).
     TypeLF,   ///< Bare LF (0x0A).
     TypeCR,   ///< Bare CR (0x0D).
-    TypeCRLF  ///< CR+LF pair (0x0D 0x0A).
+    TypeCRLF, ///< CR+LF pair (0x0D 0x0A).
+    TypeZero  ///< Null byte (0x00); response is also null-terminated.
 } TerminatorType;
 
 /// @brief Singly-linked data chunk for building multi-part response bodies.

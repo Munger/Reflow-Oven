@@ -83,8 +83,6 @@ void TriacInitModule( void ) {
 }
 
 /// @brief Return a handle to the specified TRIAC channel.
-/// @param[in] id Channel identifier.
-/// @return Pointer to the TriacDevice, or NULL if @p id is out of range.
 TriacRef TriacOpen( TriacID id ) {
     if ( id >= TriacCount ) return NULL;
     return &devices[ id ];
@@ -94,8 +92,6 @@ TriacRef TriacOpen( TriacID id ) {
 ///
 /// Clears FlagTriacStatusPhaseAngle, asserts the gate GPIO (LOW), and sets
 /// FlagTriacStatusActive and FlagTriacStatusGateOpen.
-///
-/// @param[in] triac Handle returned by TriacOpen().
 void TriacOn( TriacRef triac ) {
     if ( !triac ) return;
     osEventFlagsClear( triac->flags, 1 << FlagTriacStatusPhaseAngle );
@@ -107,8 +103,6 @@ void TriacOn( TriacRef triac ) {
 ///
 /// Clears FlagTriacStatusPhaseAngle, de-asserts the gate GPIO (HIGH), and
 /// clears FlagTriacStatusActive and FlagTriacStatusGateOpen.
-///
-/// @param[in] triac Handle returned by TriacOpen().
 void TriacOff( TriacRef triac ) {
     if ( !triac ) return;
     osEventFlagsClear( triac->flags, 1 << FlagTriacStatusPhaseAngle );
@@ -120,9 +114,6 @@ void TriacOff( TriacRef triac ) {
 ///
 /// Validates parameters, then loads them and sets FlagTriacStatusPhaseAngle.
 /// The change takes effect at the next ZCD interrupt.
-///
-/// @param[in] triac  Handle returned by TriacOpen().
-/// @param[in] params Drive parameters (phaseDelayUs ≤ 10000, burstOn ≤ burstWindow).
 void TriacRun( TriacRef triac, TriacDriveParams params ) {
     if ( !triac ) return;
 
@@ -159,7 +150,6 @@ uint32_t TriacGetStatus( TriacRef triac ) {
 ///   4. Arms TIM16 with the first channel's phase delay and generates an immediate
 ///      update event to latch the ARR before starting the timer.
 ///
-/// @param[in] GPIO_Pin HAL pin mask (unused).
 /// @warning ISR context — no FreeRTOS blocking APIs. Sets flags and writes GPIO only.
 void ZCDHandler( uint16_t GPIO_Pin ) {
     sequenceCount = 0;

@@ -23,7 +23,7 @@ typedef struct FSBlockDevice {
     const BDOps* ops;
     void*        context;
     FSGeometry   geometry;
-} FSBlockDevice;
+} FSBlockDevice, *FSBlockDevicePtr;
 
 static FSBlockDevice pool[ kBDMaxDevices ];
 static uint8_t       count = 0;
@@ -34,7 +34,7 @@ static uint8_t       count = 0;
 
 BDRef BDRegister( const BDOps* ops, void* context, FSGeometry geometry ) {
     if ( ops == NULL || count >= kBDMaxDevices ) return NULL;
-    FSBlockDevice* bd = &pool[ count++ ];
+    FSBlockDevicePtr bd = &pool[ count++ ];
     bd->ops      = ops;
     bd->context  = context;
     bd->geometry = geometry;

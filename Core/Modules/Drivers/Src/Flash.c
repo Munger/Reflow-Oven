@@ -174,10 +174,6 @@ static bool Enter4ByteMode( FlashInstancePtr flash ) {
 /// On first call for a given ID: verifies JEDEC ID, enters 4-byte address mode,
 /// and signals DeviceStatusFlagsHandle. Subsequent calls with the same ID return
 /// the existing instance without re-initialising.
-///
-/// @param[in] id   Flash device identifier.
-/// @param[in] spi  SPI bus handle returned by SPIOpen().
-/// @return Handle to the instance; always non-NULL (faults are in status flags).
 FlashRef FlashOpen( FlashID id, SPIRef spi ) {
     if ( id >= FlashCount ) return NULL;
     FlashInstancePtr flash = &instances[ id ];
@@ -214,11 +210,6 @@ FlashRef FlashGetRef( FlashID id ) {
 }
 
 /// @brief Read @p len bytes from byte address @p addr.
-/// @param[in]  flash Handle returned by FlashOpen().
-/// @param[in]  addr  Absolute byte address.
-/// @param[out] buf   Destination buffer.
-/// @param[in]  len   Number of bytes to read.
-/// @return true on success, false on SPI error.
 bool FlashRead( FlashRef flash, uint32_t addr, void* buf, uint32_t len ) {
     if ( flash == NULL ) return false;
     uint8_t cmd[ 5 ];
@@ -231,12 +222,6 @@ bool FlashRead( FlashRef flash, uint32_t addr, void* buf, uint32_t len ) {
 ///
 /// Sends Write Enable, transmits the page program command with address and data
 /// in a single CS-asserted burst, then polls WIP until the device is idle.
-///
-/// @param[in] flash Handle returned by FlashOpen().
-/// @param[in] addr  Page-aligned byte address.
-/// @param[in] buf   Source data buffer.
-/// @param[in] len   Bytes to program — must not exceed kPageSize.
-/// @return true on success, false on alignment violation, SPI error, or timeout.
 bool FlashProgram( FlashRef flash, uint32_t addr, const void* buf, uint32_t len ) {
     if ( flash == NULL ) return false;
     if ( len == 0 || len > kPageSize || ( addr % kPageSize ) != 0 ) return false;
@@ -253,10 +238,6 @@ bool FlashProgram( FlashRef flash, uint32_t addr, const void* buf, uint32_t len 
 }
 
 /// @brief Erase the 4 KB sector containing @p addr (must be sector-aligned).
-///
-/// @param[in] flash Handle returned by FlashOpen().
-/// @param[in] addr  Sector-aligned byte address (multiple of kSectorSize).
-/// @return true on success, false on alignment violation, SPI error, or timeout.
 bool FlashEraseSector( FlashRef flash, uint32_t addr ) {
     if ( flash == NULL ) return false;
     if ( ( addr % kSectorSize ) != 0 ) return false;
@@ -275,8 +256,6 @@ bool FlashEraseSector( FlashRef flash, uint32_t addr ) {
 /// @brief Erase the entire chip.
 ///
 /// @warning Blocks for up to ~400 seconds. Only call from a partition format operation.
-/// @param[in] flash Handle returned by FlashOpen().
-/// @return true on success, false on SPI error or timeout.
 bool FlashEraseChip( FlashRef flash ) {
     if ( flash == NULL ) return false;
     if ( !WriteEnable( flash ) ) return false;
@@ -288,8 +267,6 @@ bool FlashEraseChip( FlashRef flash ) {
 }
 
 /// @brief Verify the device is not busy — used as the LittleFS sync callback.
-/// @param[in] flash Handle returned by FlashOpen().
-/// @return true if idle, false on SPI error or still busy after one poll.
 bool FlashSync( FlashRef flash ) {
     if ( flash == NULL ) return false;
     uint8_t sr1;

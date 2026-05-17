@@ -89,6 +89,29 @@ HAL_StatusTypeDef I2CReadAsync( I2CRef i2c, uint16_t devAddr, uint16_t memAddr, 
 HAL_StatusTypeDef I2CReadSync( I2CRef i2c, uint16_t devAddr, uint16_t memAddr, uint16_t size,
                                uint8_t* pData, uint16_t len, uint32_t timeout );
 
+/// @brief Start an asynchronous interrupt-driven master receive (no register address).
+/// @note Use for read-only devices with no register pointer byte (e.g. MCP3221).
+/// @param[in]  i2c     Handle returned by I2COpen().
+/// @param[in]  devAddr 7-bit device address shifted left by 1.
+/// @param[out] pData   Destination buffer; must remain valid until @p cb fires.
+/// @param[in]  len     Number of bytes to read.
+/// @param[in]  cb      Completion callback; called from ISR context.
+/// @return HAL_OK if queued, HAL_BUSY if bus is in use.
+HAL_StatusTypeDef I2CReceiveAsync( I2CRef i2c, uint16_t devAddr,
+                                   uint8_t* pData, uint16_t len, I2CCallback cb );
+
+/// @brief Perform a synchronous blocking master receive (no register address).
+/// @note Use for read-only devices with no register pointer byte (e.g. MCP3221).
+/// @param[in]  i2c     Handle returned by I2COpen().
+/// @param[in]  devAddr 7-bit device address shifted left by 1.
+/// @param[out] pData   Destination buffer.
+/// @param[in]  len     Number of bytes to read.
+/// @param[in]  timeout Maximum wait time in milliseconds for the bus semaphore and transfer.
+/// @return HAL_OK on success, HAL_BUSY if semaphore timed out, HAL_ERROR on bus fault.
+/// @warning Only call from task context, not ISR.
+HAL_StatusTypeDef I2CReceiveSync( I2CRef i2c, uint16_t devAddr,
+                                  uint8_t* pData, uint16_t len, uint32_t timeout );
+
 /// @brief Perform a synchronous blocking memory write.
 /// @param[in] i2c     Handle returned by I2COpen().
 /// @param[in] devAddr 7-bit device address shifted left by 1.

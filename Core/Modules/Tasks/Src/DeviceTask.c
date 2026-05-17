@@ -21,7 +21,6 @@
 #include "ThermistorI2C.h"
 #include "Thermocouple.h"
 #include "Triac.h"
-#include "USBPowerDelivery.h"
 
 /// @brief Initialise the Device task — waits for system initialisation before proceeding.
 ///
@@ -45,6 +44,5 @@ void DeviceTaskLoop( void ) {
     TMProcess();
     TMI2CProcess();
     TCProcess();
-    USBPDProcess();
     TriacProcess();
 }

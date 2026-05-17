@@ -639,8 +639,6 @@ void ACFanInitCalibration( void ) {
 ///      e. Record the Phase 2 winner as the profile entry for this step.
 ///   3. Enforce the operational floor and assign slot 0 (motor-off).
 ///
-/// @param[out] mapOut  Caller-allocated profile map to populate. Must not be NULL.
-///
 /// @note Blocks for up to approximately 45 minutes. Must be called from a
 ///       FreeRTOS task context.
 /// @warning The caller must persist mapOut to non-volatile storage after return.
@@ -935,9 +933,6 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
 /// Guard: after interpolation, `burstOn` is clamped to `burstWindow`. Independent
 /// interpolation of both fields can produce a rounding inconsistency where
 /// `burstOn > burstWindow`, which the TRIAC driver would reject.
-///
-/// @param[in] map          A previously populated `ACFanProfileMap`.
-/// @param[in] requestedPm  Desired speed in permille of motorMaxRPM (0–1000).
 void ACFanDrive( const ACFanProfileMapPtr map, Permille requestedPm ) {
     if ( !map || !s_triac ) {
         return;

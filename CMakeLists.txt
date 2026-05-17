@@ -51,9 +51,12 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/Drivers/Src/I2CManager.c
     Core/Modules/Drivers/Src/SPIManager.c
     Core/Modules/Drivers/Src/Buzzer.c
+    Core/Modules/Drivers/Src/ACFan.c
+    Core/Modules/Drivers/Src/ACLight.c
     Core/Modules/Drivers/Src/DCFan.c
     Core/Modules/Drivers/Src/Flash.c
     Core/Modules/Drivers/Src/MCU.c
+    Core/Modules/Drivers/Src/OvenController.c
     Core/Modules/Drivers/Src/PowerManager.c
     Core/Modules/Drivers/Src/RotaryEncoder.c
     Core/Modules/Drivers/Src/Thermistor.c
@@ -103,3 +106,14 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 
 # 6. REMOVE WRONG LIBOB.A
 list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)
+
+# 7. DOCUMENTATION
+find_package(Doxygen QUIET)
+if(DOXYGEN_FOUND)
+    add_custom_target(docs ALL
+        COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Generating Doxygen documentation"
+        VERBATIM
+    )
+endif()

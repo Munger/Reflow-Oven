@@ -35,7 +35,7 @@ typedef struct PartTableRecord {
     uint16_t   reserved;
     FSPartEntry entries[ kPartMaxCount ];
     uint32_t   checksum;
-} PartTableRecord;
+} PartTableRecord, *PartTableRecordPtr;
 
 // ============================================================================
 // Private instance type
@@ -44,7 +44,7 @@ typedef struct PartTableRecord {
 typedef struct FSPartition {
     FSPartEntry entry;
     BDRef       device;
-} FSPartition;
+} FSPartition, *FSPartitionPtr;
 
 // ============================================================================
 // Module state
@@ -89,7 +89,7 @@ enum { kDefaultEntryCount = sizeof( kDefaultEntries ) / sizeof( kDefaultEntries[
 // Checksum
 // ============================================================================
 
-static uint32_t ComputeChecksum( const PartTableRecord* rec ) {
+static uint32_t ComputeChecksum( const PartTableRecordPtr rec ) {
     const uint8_t* p   = (const uint8_t*)rec;
     size_t         len = sizeof( PartTableRecord ) - sizeof( uint32_t );
     uint32_t       sum = 0;
@@ -191,7 +191,7 @@ PartRef PartGetByName( const char* name ) {
     return NULL;
 }
 
-FSResult PartGetEntry( PartRef part, FSPartEntry* out ) {
+FSResult PartGetEntry( PartRef part, FSPartEntryPtr out ) {
     if ( part == NULL || out == NULL ) return FSResultInvalid;
     *out = part->entry;
     return FSResultOk;

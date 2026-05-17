@@ -104,10 +104,6 @@ void TCInitModule( void ) {
 /// On first call for a given ID: stores @p spi, writes CR0/CR1 to the MAX31856,
 /// resolves the CJT thermistor reference, and signals DeviceStatusFlagsHandle.
 /// Subsequent calls with the same ID return the existing instance without re-configuring.
-///
-/// @param[in] thermocoupleID Channel identifier.
-/// @param[in] spi            SPI bus handle returned by SPIOpen().
-/// @return Handle to the thermocouple instance.
 ThermocoupleRef TCOpen( ThermocoupleID thermocoupleID, SPIRef spi ) {
     ThermocoupleRef tc = &instances[ (uint8_t)thermocoupleID ];
 
@@ -127,15 +123,12 @@ ThermocoupleRef TCOpen( ThermocoupleID thermocoupleID, SPIRef spi ) {
 }
 
 /// @brief Signal that a new sample cycle should begin; hardware I/O happens in TCProcess().
-/// @param[in] tc Handle returned by TCOpen().
 void TCRequestSample( ThermocoupleRef tc ) {
     if ( tc == NULL || tc->externalCjt == NULL ) return;
     osEventFlagsSet( tc->statusHandle, BIT( FlagTCStatusSamplePending ) );
 }
 
 /// @brief Return true if a new sample has been decoded since the last check.
-/// @param[in] tc Handle returned by TCOpen().
-/// @return true if FlagTCStatusDataReady is set in the instance event flags.
 /// @note Safe to call from any task context without blocking.
 bool TCIsReady( ThermocoupleRef tc ) {
     if ( tc == NULL ) return false;
@@ -143,25 +136,18 @@ bool TCIsReady( ThermocoupleRef tc ) {
 }
 
 /// @brief Return the most recently decoded thermocouple temperature.
-/// @param[in] tc Handle returned by TCOpen().
-/// @return Cached temperature in milli-degrees Celsius; 0 if @p tc is NULL.
 /// @note Safe to call from any task context without blocking.
 Temperature TCGetTemperature( ThermocoupleRef tc ) {
     return tc ? tc->lastTemp : 0;
 }
 
 /// @brief Return the cold-junction temperature for this instance.
-/// @param[in] tc Handle returned by TCOpen().
-/// @return CJT in milli-degrees Celsius; 0 if @p tc or its CJT ref is NULL.
 /// @note Delegates to TMGetTemperature() — safe from any task context.
 Temperature TCGetCJT( ThermocoupleRef tc ) {
     return ( tc != NULL && tc->externalCjt != NULL ) ? TMGetTemperature( tc->externalCjt ) : 0;
 }
 
 /// @brief Return the full status bitmask for this thermocouple instance.
-/// @param[in] tc Handle returned by TCOpen().
-/// @return Bitmask of ThermocoupleStatusBit flags, masked to OS_USER_FLAGS_MASK.
-///         Returns FlagTCStatusHardwareFault if @p tc is NULL.
 /// @note Safe to call from any task context without blocking.
 uint32_t TCGetStatus( ThermocoupleRef tc ) {
     if ( tc == NULL ) return BIT( FlagTCStatusHardwareFault );
@@ -232,7 +218,6 @@ void TCProcess( void ) {
 
 /// @brief DRDY rising-edge ISR handler — sets FlagTCStatusDataReady on the matching instance.
 ///
-/// @param[in] GPIO_Pin HAL pin mask; compared against each instance's drdyPin.
 /// @warning ISR context. Sets event flags only — no SPI access, no FreeRTOS blocking API.
 void TCHandleDRDYInterrupt( uint16_t GPIO_Pin ) {
     for ( uint8_t i = 0; i < 2; i++ ) {
@@ -246,8 +231,6 @@ void TCHandleDRDYInterrupt( uint16_t GPIO_Pin ) {
 ///
 /// Does not read the SPI fault register (to avoid SPI from ISR context). TCProcess()
 /// reads the status register on the next tick.
-///
-/// @param[in] GPIO_Pin HAL pin mask; compared against each instance's faultPin.
 /// @warning ISR context. osEventFlagsSet() only — no SPI access.
 void TCHandleFaultInterrupt( uint16_t GPIO_Pin ) {
     for ( uint8_t i = 0; i < 2; i++ ) {
