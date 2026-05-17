@@ -69,6 +69,14 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/Tasks/Src/TaskUtils.c
     Core/Modules/Tuning/Src/ACFanTuning.c
 
+    # FileSystem
+    Core/Modules/FileSystem/Src/BlockDevice.c
+    Core/Modules/FileSystem/Src/Partition.c
+    Core/Modules/FileSystem/Src/LFSAdapter.c
+    Core/Modules/FileSystem/Src/Volume.c
+    Core/Modules/FileSystem/Src/FSFile.c
+    Core/Modules/FileSystem/Src/FlashBlockDevice.c
+
     # Add third-party source files directly to your target
     Middlewares/Third_Party/cJSON/cJSON.c
     Middlewares/Third_Party/littlefs/lfs.c
@@ -83,6 +91,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/Drivers/Inc
     Core/Modules/Tuning/Inc
     Core/Modules/FileSystem/Inc
+    Core/Modules/FileSystem/Src
     Middlewares/Third_Party/cJSON
     Middlewares/Third_Party/littlefs
 )
