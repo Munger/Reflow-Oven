@@ -105,7 +105,7 @@ if(DOXYGEN_FOUND AND Python3_FOUND)
         COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Tools/gen_api_ref.py
                 ${CMAKE_CURRENT_SOURCE_DIR}/Docs/xml
-                ${CMAKE_CURRENT_SOURCE_DIR}/Docs/API.md
+                ${CMAKE_CURRENT_SOURCE_DIR}/Docs/ModuleRef.md
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Generating Doxygen HTML and Markdown API reference"
         VERBATIM

@@ -26,7 +26,7 @@ jobs:
       - name: Generate docs
         run: |
           doxygen Doxyfile
-          python3 Tools/gen_api_ref.py Docs/xml Docs/API.md
+          python3 Tools/gen_api_ref.py Docs/xml Docs/ModuleRef.md
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
