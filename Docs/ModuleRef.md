@@ -6,110 +6,6 @@
 
 *AC oven circulation fan driver.*
 
-### Types
-
-#### `ACFanID`
-
-Logical identifiers for AC fan instances managed by this driver.
-
-| Value | Description |
-|-------|-------------|
-| `OvenFan` | AC induction fan in the oven cavity. |
-| `ACFanCount` |  |
-
-#### `ACFanStatusBit`
-
-Status and diagnostic flag bit positions for an AC fan instance. These map 1:1 to the bits in the per-instance statusHandle event flag group.
-
-| Value | Description |
-|-------|-------------|
-| `FlagACFanStatusReady` | Profile loaded and drive is operational. |
-| `FlagACFanCalibrationRequired` | No valid profile found; speed commands ignored. |
-| `FlagACFanStatusSpinning` | Encoder confirms rotation above threshold. |
-| `FlagACFanStatusStall` | Speed > 0 requested but encoder reads ~0 RPM. |
-| `FlagACFanStatusHardwareFault` | TRIAC config error or encoder communication failure. |
-| `FlagACFanSpeedPending` | Speed command queued; not yet applied to TRIAC. |
-| `ACFanFlagsCount` |  |
-
-### Functions
-
-#### `ACFanInitModule`
-
-```c
-void ACFanInitModule( void )
-```
-
-Allocate per-instance resources. Does not access hardware or the filesystem.
-
-#### `ACFanOpen`
-
-```c
-ACFanRef ACFanOpen( ACFanID id, TriacID triacID, RotaryEncoderID encoderID )
-```
-
-Open a handle to a specific AC fan instance.
-
-On first call for a given ID: opens the TRIAC and encoder handles internally, then attempts to load the calibration profile from flash. Sets FlagACFanStatusReady on success or FlagACFanCalibrationRequired if no valid profile is found. Subsequent calls with the same ID return the existing instance without re-opening.
-
-| Parameter | Description |
-|-----------|-------------|
-| `id` | Fan instance identifier. |
-| `triacID` | TRIAC channel identifier for the oven fan. |
-| `encoderID` | Rotary encoder identifier for the fan shaft. |
-
-**Returns:** Handle to the instance, or NULL if id is out of range.
-
-#### `ACFanSetSpeed`
-
-```c
-void ACFanSetSpeed( ACFanRef fan, Permille speed )
-```
-
-Queue a speed request; applied to the TRIAC by ACFanProcess() on the next tick.
-
-Ignored if FlagACFanCalibrationRequired is set. Speed is clamped to [0, 1000].
-
-| Parameter | Description |
-|-----------|-------------|
-| `fan` | Handle returned by ACFanOpen(). |
-| `speed` | Desired speed in permille of motorMaxRPM (0 = off, 1000 = full). |
-
-#### `ACFanGetSpeed`
-
-```c
-Rpm ACFanGetSpeed( ACFanRef fan )
-```
-
-Return the most recently measured fan speed from the encoder.
-
-| Parameter | Description |
-|-----------|-------------|
-| `fan` | Handle returned by ACFanOpen(). |
-
-**Returns:** Cached speed in RPM; 0 if fan is NULL.
-
-#### `ACFanGetStatus`
-
-```c
-uint32_t ACFanGetStatus( ACFanRef fan )
-```
-
-Return the full status bitmask for this fan instance.
-
-| Parameter | Description |
-|-----------|-------------|
-| `fan` | Handle returned by ACFanOpen(). |
-
-**Returns:** Bitmask of ACFanStatusBit flags; BIT(FlagACFanStatusHardwareFault) if fan is NULL.
-
-#### `ACFanProcess`
-
-```c
-void ACFanProcess( void )
-```
-
-Apply any pending speed command and update status flags from the encoder.
-
 ---
 
 ## ACFanTuning
@@ -138,8 +34,6 @@ void APIStreamInit( void )
 
 Initialise (or reset) the incremental stream parser. Call once at startup.
 
-Initialise (or reset) the stream parser. Call once before ProcessStream().
-
 Initialise (or reset) the incremental stream parser. Call once at startup.
 
 #### `ProcessStream`
@@ -164,8 +58,6 @@ APIPBPtr GetNextRequest( void )
 ```
 
 Dequeue the next complete parsed request, or NULL if none are available.
-
-Dequeue the next complete request from the input queue, or NULL if none available.
 
 The caller takes ownership and must return the PB with ReleasePB() when done.
 
@@ -229,8 +121,6 @@ void APICoreInit( void )
 
 Initialise pools and queues. Call once at startup before any other APICore function.
 
-Initialise the API engine — zero all storage and populate the free-list pools.
-
 Initialise pools and queues. Call once at startup before any other APICore function.
 
 Must be called once before any other APICore function. APITaskInit() calls this after waiting for FlagSystemInitialised. All previously acquired objects are invalidated; do not call after startup.
@@ -243,8 +133,6 @@ APIPBQueueRef GetInputQueue( void )
 
 Return the input queue — received requests awaiting dispatch.
 
-Return an opaque reference to the input (received-request) queue.
-
 Return the input queue — received requests awaiting dispatch.
 
 **Returns:** Queue reference for use with EnqueuePB() / DequeuePB().
@@ -256,8 +144,6 @@ APIBufferQueueRef GetOutputQueue( void )
 ```
 
 Return the output queue — serialised responses awaiting transmission.
-
-Return an opaque reference to the output (serialised-response) queue.
 
 Return the output queue — serialised responses awaiting transmission.
 
@@ -281,8 +167,6 @@ void ReleasePB( APIPBPtr pb )
 
 Release an APIPB and all attached Payload nodes back to their pools.
 
-Return an APIPB and all attached Payload nodes to their respective pools.
-
 Calls ReleasePBMembers() first, then returns the PB. The caller must not access pb after this call.
 
 | Parameter | Description |
@@ -296,8 +180,6 @@ void EnqueuePB( APIPBQueueRef q, APIPBPtr pb )
 ```
 
 Append an APIPB to the tail of q; notifies the API task if q is the input queue.
-
-Append an APIPB to the tail of a queue and wake the API task if it is the input queue.
 
 Notifies the API task via vTaskNotifyGiveFromISR() or xTaskNotifyGive() depending on whether the call originates from an ISR. This enqueue is the handoff from the CDC receive path to the request-dispatch loop.
 
@@ -314,8 +196,6 @@ APIPBPtr DequeuePB( APIPBQueueRef q )
 
 Remove and return the APIPB at the head of q, or NULL if empty.
 
-Remove and return the APIPB at the head of a queue, or NULL if empty.
-
 | Parameter | Description |
 |-----------|-------------|
 | `q` | Source queue. |
@@ -329,8 +209,6 @@ void EnqueueBuffer( APIBufferQueueRef q, APIBufferPtr b )
 ```
 
 Append an APIBuffer chain to the tail of q; notifies the API task if q is the output queue.
-
-Append a serialised APIBuffer chain to an output queue and wake the API task.
 
 If the target is the output queue, notifies the API task with bit 0x02 so that USBSendAll() is called promptly. Works from task or ISR context.
 
@@ -346,8 +224,6 @@ APIBufferPtr DequeueBuffer( APIBufferQueueRef q )
 ```
 
 Remove and return the APIBuffer at the head of q, or NULL if empty.
-
-Remove and return the APIBuffer at the head of a queue, or NULL if empty.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -373,8 +249,6 @@ void ReleasePayload( PayloadPtr p )
 
 Return a Payload node to the pool after zeroing its data array.
 
-Zero a Payload node's data array and return it to the pool.
-
 | Parameter | Description |
 |-----------|-------------|
 | `p` | Payload to release; ignores NULL. |
@@ -386,8 +260,6 @@ void ReleasePBMembers( APIPBPtr pb )
 ```
 
 Release all Payload nodes attached to pb without returning the PB itself.
-
-Release all Payload nodes attached to an APIPB without returning the PB itself.
 
 Walks the pb->payload chain and calls ReleasePayload() on each node. The PB remains valid and its payload pointer is set to NULL. Use this when a handler has finished with the request payload but the response PB is still live.
 
@@ -413,8 +285,6 @@ void ReleaseBuffer( APIBufferPtr b )
 
 Return a transmit APIBuffer to the pool after zeroing its data and resetting length.
 
-Zero a transmit APIBuffer and return it to the pool.
-
 | Parameter | Description |
 |-----------|-------------|
 | `b` | Buffer to release; ignores NULL. |
@@ -426,8 +296,6 @@ APICoreStatsRef APICoreGetStats( void )
 ```
 
 Refresh and return a snapshot of the current API engine statistics.
-
-Snapshot current engine statistics into the APICoreStats struct and return a pointer.
 
 The returned pointer is valid until the next APICoreInit() call. The live-count fields (inputQueued, outputQueued, *MemUsed) are refreshed on each call; pool free-counts and peak marks are maintained incrementally by the pool helpers.
 
@@ -449,8 +317,6 @@ PayloadPtr HandlerOvenStatus( APIPBPtr pb )
 
 Return current oven status.
 
-Report the current oven run state and active profile.
-
 Return current oven status.
 
 | Parameter | Description |
@@ -466,8 +332,6 @@ PayloadPtr HandlerOvenRun( APIPBPtr pb )
 ```
 
 Start a reflow run with the profile named in pb->rawRequest.
-
-Start a reflow run using the profile specified in the request payload.
 
 Start a reflow run with the profile named in pb->rawRequest.
 
@@ -485,8 +349,6 @@ PayloadPtr HandlerOvenStop( APIPBPtr pb )
 
 Stop a running reflow cycle gracefully.
 
-Stop the current reflow run gracefully.
-
 Stop a running reflow cycle gracefully.
 
 | Parameter | Description |
@@ -502,8 +364,6 @@ PayloadPtr HandlerOvenEstop( APIPBPtr pb )
 ```
 
 Immediately cut all power to heater and fan (emergency stop).
-
-Trigger an immediate emergency stop.
 
 Immediately cut all power to heater and fan (emergency stop).
 
@@ -521,8 +381,6 @@ PayloadPtr HandlerManualEnable( APIPBPtr pb )
 
 Enable manual override mode, allowing direct heater and fan control.
 
-Enter manual control mode, allowing direct heater and fan commands.
-
 Enable manual override mode, allowing direct heater and fan control.
 
 | Parameter | Description |
@@ -538,8 +396,6 @@ PayloadPtr HandlerManualDisable( APIPBPtr pb )
 ```
 
 Disable manual override mode and return to automatic control.
-
-Exit manual control mode and return to safe idle state.
 
 Disable manual override mode and return to automatic control.
 
@@ -557,8 +413,6 @@ PayloadPtr HandlerManualHeater( APIPBPtr pb )
 
 Set the heater drive level while in manual mode.
 
-Set heater power level in manual control mode.
-
 Set the heater drive level while in manual mode.
 
 | Parameter | Description |
@@ -574,8 +428,6 @@ PayloadPtr HandlerManualFan( APIPBPtr pb )
 ```
 
 Set the oven fan speed while in manual mode.
-
-Set cooling fan speed in manual control mode.
 
 Set the oven fan speed while in manual mode.
 
@@ -593,8 +445,6 @@ PayloadPtr HandlerSensorsTemp( APIPBPtr pb )
 
 Return all current temperature sensor readings.
 
-Return current temperature readings from all sensors.
-
 Return all current temperature sensor readings.
 
 | Parameter | Description |
@@ -610,8 +460,6 @@ PayloadPtr HandlerSensorsMains( APIPBPtr pb )
 ```
 
 Return current mains voltage and frequency readings.
-
-Return mains voltage and ZCD status.
 
 Return current mains voltage and frequency readings.
 
@@ -629,8 +477,6 @@ PayloadPtr HandlerProfilesList( APIPBPtr pb )
 
 Return a list of all stored reflow profiles.
 
-Return a list of stored reflow profiles.
-
 Return a list of all stored reflow profiles.
 
 | Parameter | Description |
@@ -646,8 +492,6 @@ PayloadPtr HandlerProfileGet( APIPBPtr pb )
 ```
 
 Return the reflow profile named in pb->rawRequest.
-
-Return a single profile identified by the request payload.
 
 Return the reflow profile named in pb->rawRequest.
 
@@ -665,8 +509,6 @@ PayloadPtr HandlerProfileCreate( APIPBPtr pb )
 
 Create a new reflow profile with the name in pb->rawRequest.
 
-Create a new reflow profile from the request payload.
-
 Create a new reflow profile with the name in pb->rawRequest.
 
 | Parameter | Description |
@@ -682,8 +524,6 @@ PayloadPtr HandlerProfileUpdate( APIPBPtr pb )
 ```
 
 Update an existing reflow profile named in pb->rawRequest.
-
-Update an existing profile with data from the request payload.
 
 Update an existing reflow profile named in pb->rawRequest.
 
@@ -701,8 +541,6 @@ PayloadPtr HandlerProfileDelete( APIPBPtr pb )
 
 Delete the reflow profile named in pb->rawRequest.
 
-Delete the profile identified by the request payload.
-
 Delete the reflow profile named in pb->rawRequest.
 
 | Parameter | Description |
@@ -718,8 +556,6 @@ PayloadPtr HandlerConfigGet( APIPBPtr pb )
 ```
 
 Return the current system configuration.
-
-Return the device configuration.
 
 Return the current system configuration.
 
@@ -737,8 +573,6 @@ PayloadPtr HandlerConfigPut( APIPBPtr pb )
 
 Apply a new system configuration from the request payload.
 
-Replace the device configuration with the request payload.
-
 Apply a new system configuration from the request payload.
 
 | Parameter | Description |
@@ -754,8 +588,6 @@ PayloadPtr HandlerLogsList( APIPBPtr pb )
 ```
 
 Return a list of all stored log files.
-
-Return a list of stored log files.
 
 Return a list of all stored log files.
 
@@ -773,8 +605,6 @@ PayloadPtr HandlerLogGet( APIPBPtr pb )
 
 Return the contents of the log file named in pb->rawRequest.
 
-Return the contents of a single log file.
-
 Return the contents of the log file named in pb->rawRequest.
 
 | Parameter | Description |
@@ -790,8 +620,6 @@ PayloadPtr HandlerLogDelete( APIPBPtr pb )
 ```
 
 Delete the log file named in pb->rawRequest.
-
-Delete a single log file identified by the request payload.
 
 Delete the log file named in pb->rawRequest.
 
@@ -823,8 +651,6 @@ PayloadPtr HandlerStorageGet( APIPBPtr pb )
 
 Return flash storage usage statistics.
 
-Return file system status and free space.
-
 Return flash storage usage statistics.
 
 | Parameter | Description |
@@ -840,8 +666,6 @@ PayloadPtr HandlerStorageFormat( APIPBPtr pb )
 ```
 
 Erase and reformat the flash storage filesystem.
-
-Format the storage partition.
 
 Erase and reformat the flash storage filesystem.
 
@@ -859,8 +683,6 @@ PayloadPtr HandlerSystemStatus( APIPBPtr pb )
 
 Return system health and build information.
 
-Return system status flags, uptime, and firmware version.
-
 Return system health and build information.
 
 | Parameter | Description |
@@ -876,8 +698,6 @@ PayloadPtr HandlerClockGet( APIPBPtr pb )
 ```
 
 Return the current real-time clock value.
-
-Return the current RTC date and time.
 
 Return the current real-time clock value.
 
@@ -895,8 +715,6 @@ PayloadPtr HandlerClockPut( APIPBPtr pb )
 
 Set the real-time clock from the value in pb->rawRequest.
 
-Set the RTC date and time from the request payload.
-
 Set the real-time clock from the value in pb->rawRequest.
 
 | Parameter | Description |
@@ -912,8 +730,6 @@ PayloadPtr HandlerSystemReset( APIPBPtr pb )
 ```
 
 Perform a software reset of the microcontroller.
-
-Perform a software reset of the MCU.
 
 Perform a software reset of the microcontroller.
 
@@ -931,8 +747,6 @@ PayloadPtr HandlerPowerGet( APIPBPtr pb )
 
 Return current USB-PD power contract details.
 
-Return USB PD contract details and live voltage/current readings.
-
 Return current USB-PD power contract details.
 
 | Parameter | Description |
@@ -949,8 +763,6 @@ PayloadPtr HandlerUiLight( APIPBPtr pb )
 
 Set the oven light state from pb->rawRequest.
 
-Set the status indicator light state from the request payload.
-
 Set the oven light state from pb->rawRequest.
 
 | Parameter | Description |
@@ -966,8 +778,6 @@ PayloadPtr HandlerUiBuzzer( APIPBPtr pb )
 ```
 
 Trigger a buzzer pattern identified by pb->rawRequest.
-
-Play a buzzer melody or tone specified in the request payload.
 
 Trigger a buzzer pattern identified by pb->rawRequest.
 
@@ -1028,7 +838,7 @@ A single entry in the API route table.
 
 | Type | Field | Description |
 |------|-------|-------------|
-| `const char *` | `pattern` | sscanf-compatible pattern, e.g. "GET /profiles/s". |
+| `const char *` | `pattern` | sscanf-compatible pattern, e.g. "GET /profiles/%s". |
 | `APIRequestCode` | `reqCode` | Logical request code for the matched route. |
 | `APIHandler` | `handler` | Direct handler function to call on dispatch. |
 
@@ -1048,8 +858,6 @@ void APITaskInit( void )
 
 Initialise the API core and buffer stream subsystems.
 
-Initialise the API task — waits for system init then starts API subsystems.
-
 Waits for FlagSystemInitialised in SystemStatusFlagsHandle before proceeding. Called once by app_freertos.c at startup.
 
 Initialise the API core and buffer stream subsystems.
@@ -1063,8 +871,6 @@ void APITaskLoop( void )
 ```
 
 Main execution body of the API task loop.
-
-API task main loop body — processes requests and drives the transmit queue.
 
 Blocks on xTaskNotifyWait(), processes pending requests via the route table, queues serialised responses, and drains the USB transmit queue. Called repeatedly by app_freertos.c in the task's infinite loop.
 
@@ -1082,8 +888,6 @@ void USBTxDoneHandler( void )
 
 USB transmission complete callback — advances the transmit pipeline.
 
-USB CDC TX-complete callback — advances or closes the transmit pipeline.
-
 Called directly from the USB CDC ISR (usbd_cdc_if.c). Releases the completed buffer, starts the next link in the chain if present, or wakes the API task via task notification to re-check the output queue.
 
 Releases the completed buffer. If a next link is available in the chain, starts it immediately via CDC_Transmit_FS(). Otherwise resets currentUSBBuffer to NULL and wakes the API task so it can dequeue the next buffer.
@@ -1095,6 +899,19 @@ Releases the completed buffer. If a next link is available in the chain, starts 
 *Core API type definitions shared across the codec, core, and handler layers.*
 
 ### Types
+
+#### ``
+
+API pool and buffer sizing constants.
+
+| Value | Description |
+|-------|-------------|
+| `API_PAYLOAD_SIZE` | Maximum bytes in a single Payload data chunk. |
+| `API_PAYLOAD_COUNT` | Total Payload objects in the static pool. |
+| `APIPB_COUNT` | Total APIPB protocol buffers in the static pool. |
+| `API_BUFFER_SIZE` | Maximum bytes in a single APIBuffer transmit chunk. |
+| `API_BUFFER_COUNT` | Total APIBuffer objects in the static pool. |
+| `API_REQUEST_MAX_LEN` | Maximum bytes captured into APIPB.rawRequest. |
 
 #### `APIStatus`
 
@@ -1211,8 +1028,6 @@ void DeviceTaskInit( void )
 
 Initialise the Device task — waits for system initialisation signal.
 
-Initialise the Device task — waits for system initialisation before proceeding.
-
 Blocks on FlagSystemInitialised in SystemStatusFlagsHandle before returning. Called once by app_freertos.c at startup.
 
 Initialise the Device task — waits for system initialisation signal.
@@ -1226,8 +1041,6 @@ void DeviceTaskLoop( void )
 ```
 
 Main execution body of the Device task loop.
-
-Call the Process() function for every driver module in sequence.
 
 Calls the Process() function for every driver module in sequence. Called repeatedly by app_freertos.c in the task's infinite loop.
 
@@ -1291,11 +1104,11 @@ Each Process() function performs all hardware I/O, updates cached state, and set
 
 | Value | Description |
 |-------|-------------|
-| `I2CAddrSTPD01` | STPD01PUR — USB-PD power supply controller (ADD=GND). |
-| `I2CAddrAS5600` | AS5600 — magnetic encoder / fan tachometer (CN4, fixed). |
-| `I2CAddrMCP3221` | MCP3221A2T — 12-bit I2C ADC for NTC thermistor (A2 variant). |
-| `I2CAddrEMC2101` | EMC2101 — DC fan controller / inlet-temp sensor (fixed). |
-| `I2CAddrTCPP03` | TCPP03-M20 — USB-C port protection controller (I2C_ADD=GND). |
+| `I2CAddrSTPD01` | STPD01PUR — USB-PD power supply controller (ADD=GND) |
+| `I2CAddrAS5600` | AS5600 — magnetic encoder / fan tachometer (CN4, fixed) |
+| `I2CAddrMCP3221` | MCP3221A2T — 12-bit I2C ADC for NTC thermistor (A2 variant) |
+| `I2CAddrEMC2101` | EMC2101 — DC fan controller / inlet-temp sensor (fixed) |
+| `I2CAddrTCPP03` | TCPP03-M20 — USB-C port protection controller (I2C_ADD=GND) |
 
 ---
 
@@ -1321,10 +1134,10 @@ Status and diagnostic flag bit positions for an I2C bus instance. These map 1:1 
 | Value | Description |
 |-------|-------------|
 | `FlagI2CStatusReady` | Bus initialised and ready for transfers. |
-| `FlagI2CStatusBusError` | HAL reported a bus error (BERR or NACK). |
-| `FlagI2CStatusArbitrationLost` | Multi-master arbitration lost (ARLO). |
+| `FlagI2CStatusBusError` | HAL reported a bus error (BERR or NACK) |
+| `FlagI2CStatusArbitrationLost` | Multi-master arbitration lost (ARLO) |
 | `FlagI2CStatusTimeout` | Transfer exceeded the caller-supplied timeout. |
-| `FlagI2CStatusLocked` | SDA held low by a peripheral (bus locked). |
+| `FlagI2CStatusLocked` | SDA held low by a peripheral (bus locked) |
 | `I2CFlagsCount` |  |
 
 ### Functions
@@ -1477,8 +1290,6 @@ void LoggingTaskInit( void )
 
 Initialise the Logging task — waits for system initialisation signal.
 
-Initialise the Logging task — waits for system initialisation before proceeding.
-
 Blocks on FlagSystemInitialised in SystemStatusFlagsHandle before returning. Called once by app_freertos.c at startup.
 
 Initialise the Logging task — waits for system initialisation signal.
@@ -1490,8 +1301,6 @@ void LoggingTaskLoop( void )
 ```
 
 Main execution body of the Logging task loop.
-
-Logging task loop body — currently empty pending file manager implementation.
 
 Currently a placeholder — implementation pending file manager driver.
 
@@ -1565,8 +1374,6 @@ void MCUProcess( void )
 
 Refresh cached ADC readings, apply pending RTC writes, and update status flags.
 
-Refresh cached ADC readings, apply any pending RTC write, and update status flags.
-
 #### `CRCInit`
 
 ```c
@@ -1574,8 +1381,6 @@ void CRCInit( MCURef mcu )
 ```
 
 Acquire the CRC engine and reset the accumulator. Blocks if already in use.
-
-Acquire the CRC engine and reset the accumulator. Blocks until the engine is free.
 
 Acquire the CRC engine and reset the accumulator. Blocks if already in use.
 
@@ -1603,8 +1408,6 @@ uint32_t CRCCompute( MCURef mcu, const uint8_t * data, size_t length )
 
 Compute CRC-32 over a contiguous buffer. Acquires and releases the engine internally.
 
-Convenience wrapper: compute CRC-32 over a single contiguous buffer.
-
 Compute CRC-32 over a contiguous buffer. Acquires and releases the engine internally.
 
 #### `CRCVerify`
@@ -1614,8 +1417,6 @@ bool CRCVerify( MCURef mcu, const uint8_t * data, size_t length, uint32_t expect
 ```
 
 Compute CRC-32 and compare with an expected value.
-
-Convenience wrapper: compute CRC-32 and compare against an expected value.
 
 Compute CRC-32 and compare with an expected value.
 
@@ -1635,8 +1436,6 @@ void ManagerTaskInit( void )
 
 Initialise all hardware driver modules and signal system readiness.
 
-Initialise all driver modules in dependency order, then signal system readiness.
-
 Calls XxxInitModule() for every driver in dependency order. Waits for DEVICE_ALL_READY before enabling interrupts and setting FlagSystemInitialised. Called once by app_freertos.c at startup.
 
 Initialise all hardware driver modules and signal system readiness.
@@ -1650,8 +1449,6 @@ void ManagerTaskLoop( void )
 ```
 
 Main execution body of the Manager task loop — fault supervisor.
-
-Supervisor loop — blocks on any active fault and reacts accordingly.
 
 Blocks indefinitely on FaultFlagsHandle (any fault bit). The notification value is captured but not yet acted upon; fault handling policy is TBD. Called repeatedly by app_freertos.c in the task's infinite loop.
 
@@ -1715,7 +1512,7 @@ Shared control and status block for an oven regulation run.
 | `uint8_t` | `heaterBottom` | Permit the bottom heater. |
 | `uint8_t` | `__pad0__` | Reserved — must be zero. |
 | `uint8_t` | `heaters` |  |
-| `union OvenControlPB::@100131271336230067170025222116232151313334207060` | `@316011250047115333021116104170373357037053357005` |  |
+| `union OvenControlPB` | `` |  |
 | `osEventFlagsId_t` | `statusHandle` |  |
 | `Temperature` | `currentTemp` | Averaged cavity temperature from active sources, in milli-degrees C. |
 | `OvenState` | `state` | Current regulation state. |
@@ -1836,14 +1633,14 @@ Granular status and fault bit positions for the Power Manager. These map 1:1 to 
 | Value | Description |
 |-------|-------------|
 | `FlagPMStatusReady` | Power manager initialised and running. |
-| `FlagPMEStopTripped` | E-Stop loop is open (hardware detected). |
-| `FlagPMMainsPower` | AC mains input detected (vs USB-only supply). |
+| `FlagPMEStopTripped` | E-Stop loop is open (hardware detected) |
+| `FlagPMMainsPower` | AC mains input detected (vs USB-only supply) |
 | `FlagPMSwitchedACLive` | ZCD confirms switched AC is present at the output. |
-| `FlagPMHotSideEnabled` | Hot-side relay command is active (GPIO driven low). |
+| `FlagPMHotSideEnabled` | Hot-side relay command is active (GPIO driven low) |
 | `FlagPMAuxPowerEnabled` | Aux 24 V rail is active. |
 | `FlagPMHotSideBlocked` | E-Stop is preventing the hot side from turning on. |
-| `FlagPMHotSideRogue` | AC live detected but hot side should be off (safety fault). |
-| `FlagPMHotSideDead` | Hot side commanded on but AC not detected (relay fault). |
+| `FlagPMHotSideRogue` | AC live detected but hot side should be off (safety fault) |
+| `FlagPMHotSideDead` | Hot side commanded on but AC not detected (relay fault) |
 | `PMFlagsCount` |  |
 
 ### Functions
@@ -1855,8 +1652,6 @@ void PMInitModule( void )
 ```
 
 Initialise the Power Manager, sample GPIO state, and disable both output rails.
-
-Initialise the Power Manager — sample GPIO state, disable output rails, set ready flag.
 
 Initialise the Power Manager, sample GPIO state, and disable both output rails.
 
@@ -1928,8 +1723,6 @@ void PMHandleZCDInterrupt( uint16_t GPIO_Pin )
 
 ZCD rising-edge ISR handler — records the tick and marks AC as live.
 
-ZCD rising-edge ISR handler — records the timestamp and marks AC as live.
-
 | Parameter | Description |
 |-----------|-------------|
 | `GPIO_Pin` | The HAL pin mask (unused; only one ZCD pin exists). |
@@ -1982,8 +1775,6 @@ ReflowRef ReflowOpen( void )
 
 Open the reflow engine and acquire its OvenController reference.
 
-Open the reflow engine and acquire OvenController and ACFan references.
-
 Creates ReflowStatusFlagsHandle and initialises the engine state. Must be called once before any other Reflow function.
 
 Idempotent — subsequent calls return the existing handle without re-initialising. Sets FlagReflowReady and FlagReflowEngineReady in DeviceStatusFlagsHandle.
@@ -1997,8 +1788,6 @@ bool ReflowStart( ReflowRef ref, const char * name )
 ```
 
 Load a profile by name and begin execution.
-
-Load a profile by name and start execution from stage 0.
 
 Resolves name via the ReflowProfile module. If the named file is not found on the filesystem, the hardcoded default profile is used. Resets all status flags and starts the stage state machine from stage 0.
 
@@ -2019,8 +1808,6 @@ void ReflowAbort( ReflowRef ref )
 
 Abort the active cycle and return the oven to idle.
 
-Abort the active cycle and de-energise the oven.
-
 Sets FlagReflowAborted, calls OCStop(), and clears FlagReflowInProgress. Safe to call at any point, including when no cycle is running.
 
 | Parameter | Description |
@@ -2034,8 +1821,6 @@ void ReflowPause( ReflowRef ref )
 ```
 
 Suspend the active cycle and hold at the current stage target temperature.
-
-Suspend the cycle. OvenController continues to regulate at the current target.
 
 Sets FlagReflowPaused. The stage timer is frozen and the OvenController continues to regulate at the current target. Has no effect if no cycle is running or the cycle is already paused.
 
@@ -2051,8 +1836,6 @@ void ReflowResume( ReflowRef ref )
 
 Resume a paused cycle from the point at which it was suspended.
 
-Resume a paused cycle; stage and hold timers restart from now.
-
 Clears FlagReflowPaused and restarts the stage timer. Has no effect if the cycle is not paused.
 
 | Parameter | Description |
@@ -2066,8 +1849,6 @@ void ReflowProcess( ReflowRef ref )
 ```
 
 Execute one iteration of the reflow state machine.
-
-Advance the reflow state machine by one iteration.
 
 Called from ReflowTaskLoop() in a continuous loop. When a cycle is active this function may block on osDelay() during timed holds. When idle it blocks on FlagReflowInProgress to yield the CPU.
 
@@ -2084,8 +1865,6 @@ uint32_t ReflowGetStatus( ReflowRef ref )
 ```
 
 Return the current status flags as a snapshot bitmask.
-
-Return the current status flags snapshot.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -2116,6 +1895,14 @@ Valid only while FlagReflowInProgress is set. Returns 0 when idle. Combined with
 *Reflow profile data structures and filesystem I/O.*
 
 ### Types
+
+#### ``
+
+Maximum number of stages in a reflow profile.
+
+| Value | Description |
+|-------|-------------|
+| `kReflowMaxStages` |  |
 
 #### `ReflowStageType`
 
@@ -2149,7 +1936,7 @@ A single stage within a reflow profile.
 | `ReflowHoldCriterion` | `holdCriterion` | What triggers the advance to the next stage. |
 | `uint32_t` | `holdMs` | Hold duration (ReflowHoldTime): milliseconds at target. |
 | `int16_t` | `holdTempC` | Hold threshold (ReflowHoldTemperature): advance when temp crosses this. |
-| `union ReflowStage::@315175037157065347063232005123154162232066360037` | `@135343021137313330207133262263266165210225340064` |  |
+| `union ReflowStage` | `` |  |
 | `Permille` | `fanStart` | Oven fan speed at stage entry (0–1000). |
 | `Permille` | `fanEnd` | Oven fan speed at stage exit. Equal to fanStart for fixed speed. |
 | `uint8_t` | `heaterTop` | Enable top heating element. |
@@ -2157,7 +1944,7 @@ A single stage within a reflow profile.
 | `uint8_t` | `heaterBottom` | Enable bottom heating element. |
 | `uint8_t` | `__pad0__` | Reserved — must be zero. |
 | `uint8_t` | `heaters` |  |
-| `union ReflowStage::@142056317360102003172110071013335143343125232237` | `@050063217245131344014361265355252302041121127352` |  |
+| `union ReflowStage` | `` |  |
 
 #### `ReflowProfile`
 
@@ -2179,8 +1966,6 @@ const ReflowProfile * ReflowProfileGetDefault( void )
 
 Return a pointer to the hardcoded default lead-free reflow profile.
 
-Return a pointer to the hardcoded default Pb-free reflow profile.
-
 The returned pointer is valid for the lifetime of the program.
 
 Return a pointer to the hardcoded default lead-free reflow profile.
@@ -2194,8 +1979,6 @@ bool ReflowProfileLoad( const char * name, ReflowProfilePtr out )
 ```
 
 Load a profile from the filesystem into a caller-supplied buffer.
-
-Load a reflow profile from the filesystem into out.
 
 name may be a bare filename (e.g. "leaded.rfl") or a full pathname. Bare filenames are resolved against the profile storage directory.
 
@@ -2215,8 +1998,6 @@ bool ReflowProfileSave( const ReflowProfile * profile, const char * name )
 ```
 
 Save a profile to the filesystem.
-
-Save a reflow profile to the filesystem.
 
 name may be a bare filename or a full pathname. Bare filenames are written to the profile storage directory.
 
@@ -2288,7 +2069,7 @@ Status and diagnostic flag bit positions for an SPI bus instance. These map 1:1 
 |-------|-------------|
 | `FlagSPIStatusReady` | Bus initialised and ready for transfers. |
 | `FlagSPIStatusBusError` | MODF or general HAL bus error. |
-| `FlagSPIStatusOverrun` | RX overrun (OVR). |
+| `FlagSPIStatusOverrun` | RX overrun (OVR) |
 | `FlagSPIStatusTimeout` | Semaphore or transfer timeout. |
 | `FlagSPIStatusCRCError` | CRC mismatch on received data. |
 | `FlagSPIStatusDMAError` | DMA transfer error. |
@@ -2343,8 +2124,6 @@ void SPIReadAsync( SPIRef spi, GPIO_TypeDef * csPort, uint16_t csPin, uint8_t * 
 
 Start an asynchronous interrupt-driven read from a device.
 
-Start an asynchronous interrupt-driven SPI read.
-
 | Parameter | Description |
 |-----------|-------------|
 | `spi` | Handle returned by SPIOpen(). |
@@ -2362,8 +2141,6 @@ void SPIWriteAsync( SPIRef spi, GPIO_TypeDef * csPort, uint16_t csPin, uint8_t *
 
 Start an asynchronous interrupt-driven write to a device.
 
-Start an asynchronous interrupt-driven SPI write.
-
 | Parameter | Description |
 |-----------|-------------|
 | `spi` | Handle returned by SPIOpen(). |
@@ -2380,8 +2157,6 @@ void SPITransceiveAsync( SPIRef spi, GPIO_TypeDef * csPort, uint16_t csPin, uint
 ```
 
 Start an atomic asynchronous write-then-read without toggling CS between phases.
-
-Start an atomic asynchronous write-then-read without CS toggling between phases.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -2402,8 +2177,6 @@ bool SPIWriteSync( SPIRef spi, GPIO_TypeDef * csPort, uint16_t csPin, uint8_t * 
 
 Perform a synchronous blocking write.
 
-Perform a synchronous blocking SPI write.
-
 | Parameter | Description |
 |-----------|-------------|
 | `spi` | Handle returned by SPIOpen(). |
@@ -2422,8 +2195,6 @@ bool SPIReadSync( SPIRef spi, GPIO_TypeDef * csPort, uint16_t csPin, uint8_t * p
 ```
 
 Perform a synchronous blocking read.
-
-Perform a synchronous blocking SPI read.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -2575,10 +2346,10 @@ Status and diagnostic flag bit positions for a TRIAC channel. These map 1:1 to t
 | Value | Description |
 |-------|-------------|
 | `FlagTriacStatusReady` | Driver initialised and GPIO mapped. |
-| `FlagTriacStatusActive` | Power is requested (manual ON or burst window ON). |
-| `FlagTriacStatusGateOpen` | Physical GPIO is LOW (gate is conducting). |
-| `FlagTriacStatusZCDLost` | AC line sync lost (ZCD watchdog timeout). |
-| `FlagTriacStatusConfigError` | Invalid parameters detected in TriacRun(). |
+| `FlagTriacStatusActive` | Power is requested (manual ON or burst window ON) |
+| `FlagTriacStatusGateOpen` | Physical GPIO is LOW (gate is conducting) |
+| `FlagTriacStatusZCDLost` | AC line sync lost (ZCD watchdog timeout) |
+| `FlagTriacStatusConfigError` | Invalid parameters detected in TriacRun() |
 | `FlagTriacStatusPhaseAngle` | Sequenced phase-angle control mode is active. |
 | `FlagTriacStatusPulsePending` | Sequencer has queued this channel for a timed pulse. |
 | `FlagTriacStatusPulseActive` | This channel is currently inside its 100 µs pulse window. |
@@ -2598,9 +2369,9 @@ TRIAC drive parameters for a single channel.
 
 | Type | Field | Description |
 |------|-------|-------------|
-| `uint16_t` | `phaseDelayUs` | Delay from ZCD to gate fire (0 = full power, up to 10000 µs). |
+| `uint16_t` | `phaseDelayUs` | Delay from ZCD to gate fire (0 = full power, up to 10000 µs) |
 | `uint8_t` | `burstOn` | Number of half-cycles 'On' within the burst window. |
-| `uint8_t` | `burstWindow` | Total window size in half-cycles (burstOn + burstOff). |
+| `uint8_t` | `burstWindow` | Total window size in half-cycles (burstOn + burstOff) |
 
 ### Functions
 
@@ -2662,8 +2433,6 @@ void TriacRun( TriacRef triac, TriacDriveParams params )
 
 Configure a TRIAC for phase-angle / burst-fire control and validate the parameters.
 
-Configure a TRIAC for phase-angle / burst-fire control.
-
 Validates that phaseDelayUs ≤ 10000 µs and burstOn ≤ burstWindow. On validation failure, sets FlagTriacStatusConfigError and raises FlagTriacFault. On success, loads the parameters and sets FlagTriacStatusPhaseAngle.
 
 Validates parameters, then loads them and sets FlagTriacStatusPhaseAngle. The change takes effect at the next ZCD interrupt.
@@ -2695,8 +2464,6 @@ void TriacProcess( void )
 
 Task-loop tick: check the ZCD watchdog and assert ZCDLost / TriacFault on AC loss.
 
-Task-loop tick: check the ZCD watchdog and raise faults on AC loss.
-
 If more than 50 ms have elapsed since the last ZCD interrupt (equivalent to 5 missed zero-crosses at 50 Hz), sets FlagTriacStatusZCDLost on all channels and raises FlagTriacFault in FaultFlagsHandle.
 
 #### `ZCDHandler`
@@ -2706,8 +2473,6 @@ void ZCDHandler( uint16_t GPIO_Pin )
 ```
 
 Zero-cross rising-edge ISR handler — drives the burst sequencer and primes TIM16.
-
-Zero-cross ISR handler — drives the burst sequencer and arms TIM16.
 
 Resets all sequencer transient flags, updates burst counters, identifies channels that need a timed gate pulse, sorts them by phase delay, and arms TIM16 to fire at the first channel's phase offset.
 
