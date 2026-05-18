@@ -35,8 +35,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
-#include "cJSON.h"
-
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -81,10 +79,6 @@ int main(void)
 
   /* USER CODE BEGIN 1 */
   
-    // Link cJSON to FreeRTOS Heap
-    cJSON_Hooks hooks = { .malloc_fn = pvPortMalloc, .free_fn = vPortFree };
-    cJSON_InitHooks( &hooks );
-
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/

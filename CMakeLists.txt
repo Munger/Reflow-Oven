@@ -21,13 +21,6 @@ add_executable(${CMAKE_PROJECT_NAME})
 include(FetchContent)
 
 FetchContent_Declare(
-  cjson
-  URL                        https://github.com/DaveGamble/cJSON/archive/refs/tags/v1.7.18.zip
-  SOURCE_DIR                 ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/Third_Party/cJSON
-  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-)
-
-FetchContent_Declare(
   littlefs
   URL                        https://github.com/littlefs-project/littlefs/archive/refs/tags/v2.9.3.zip
   SOURCE_DIR                 ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/Third_Party/littlefs
@@ -35,7 +28,6 @@ FetchContent_Declare(
 )
 
 # Populate folders manually to avoid running their problematic CMakeLists.txt
-FetchContent_Populate(cjson)
 FetchContent_Populate(littlefs)
 
 # 2. SUBDIRECTORIES
@@ -81,7 +73,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/FileSystem/Src/FlashBlockDevice.c
 
     # Add third-party source files directly to your target
-    Middlewares/Third_Party/cJSON/cJSON.c
     Middlewares/Third_Party/littlefs/lfs.c
     Middlewares/Third_Party/littlefs/lfs_util.c
 )
@@ -95,7 +86,6 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/Tuning/Inc
     Core/Modules/FileSystem/Inc
     Core/Modules/FileSystem/Src
-    Middlewares/Third_Party/cJSON
     Middlewares/Third_Party/littlefs
 )
 
