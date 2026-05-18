@@ -1,56 +1,92 @@
 # VesuviOven MagmaFlow V1 Firmware
 
-This firmware provides precision reflow capabilities for the Ninja Foodi DT200UK, targeting the STM32G0 microcontroller. Developed by MungerWare, it focuses on high-fidelity thermal telemetry and robust power delivery.
+> **Work in progress.** Hardware and firmware are under active development and are not yet complete.
 
-## ⚡ Hardware & Power Architecture
+Precision reflow soldering controller for the Ninja Foodi DT200UK, built by MungerWare.
+Targets the STM32G0B1 and runs on FreeRTOS.
 
-The MagmaFlow V1 platform is designed for both high-power operation and safe, low-power development.
+## What it does
 
-* **Dual-Mode USB-PD:** Features a fully negotiated USB Power Delivery stack. 
-    * **Mains Mode:** Drives high-current AC loads via phase-angle or ON/OFF control.
-    * **Debug Mode:** Provides up to 20V @ 15W via USB-PD, allowing for full logic and peripheral testing/flashing from a PC without AC mains present.
-* **Thermal Interface:**
-    * Dual Type-K Thermocouples via MAX31856 universal digitizers.
-    * External Cold-Junction Compensation (CJC) via board-level NTCs to eliminate internal sensor self-heating errors.
-* **Closed-Loop Cooling:** Dual tacho-monitored fan channels (Convection & Board Cooling) for active thermal management and safety interlocks.
-* **Storage:** 64MB Serial Flash for persistent storage of reflow profiles, calibration constants, and detailed telemetry logging.
+**Thermal control**
 
-## 🚀 Software Design
+Drives three independently switchable heating zones (top quartz, bottom quartz, rear
+convection) with configurable ramp rate, target temperature, and hold tolerance.
+Two Type-K thermocouples and an oven cavity thermistor are averaged for the control
+input; any faulted sensor is automatically excluded. A hard over-temperature limit
+de-energises all elements and latches a fault regardless of the active profile.
 
-The firmware uses an event-driven architecture to ensure safety and responsiveness:
+**Reflow profiles**
 
-* **RTOS:** FreeRTOS-based task management.
-* **Concurrency:** Uses Direct-to-Task notifications for low-latency handling of system events.
-* **Communication Protocol:** * **RESTful USB Interface:** The USB CDC stack implements a REST-based protocol, allowing for seamless integration with web-based dashboards via Web Serial.
-    * **CLI Mode:** A comprehensive Command Line Interface is provided for local terminal debugging and manual hardware control.
-* **FS & Config:** Uses littlefs for robust flash wear-levelling and cJSON for profile parsing.
+Profiles define a sequence of temperature stages (preheat, soak, reflow, cool) with
+per-stage ramp rates and hold times. Profiles are stored on the onboard flash and
+can be loaded, edited, and triggered remotely.
 
-## 📂 Project Structure
+**Connectivity**
 
-* Core/: Application logic, thermal PID loops, and task handlers.
-* USB_Device/: Custom USB-PD and CDC class implementation logic.
-* Middlewares/Third_Party/: Localised, vendor-independent versions of cJSON and littlefs.
-* cmake/stm32cubemx/: STM32 HAL/LL peripheral initialisation.
+A USB CDC interface exposes a REST API for profile management, live telemetry, and
+manual control. A CLI is available on the same port for terminal-based debugging and
+direct hardware access.
 
-## 🔨 Build Instructions
+**Power**
 
-### Prerequisites
-* ARM GNU Toolchain (arm-none-eabi-gcc)
-* CMake 3.22+
-* Ninja or Make build generator
+Mains operation is fed by a RAC20 PSU at 24 V / 20 W. When mains is absent, the
+board operates as a USB Power Delivery sink and accepts whatever voltage the host
+negotiates — enough to run the full logic stack, sensors, fans, and communications
+for development and flashing without AC present. As a USB-PD source the board offers
+5 V, 9 V, 12 V, and 20 V, all capped at 15 W.
 
-### Compilation
-mkdir build && cd build
-cmake .. -GNinja
-ninja
+**Storage**
 
-## 🔗 Project Resources
-* Hardware Design: https://oshwlab.com/trhosking/reflow-oven
+64 MB of NOR flash is managed through a layered filesystem: a partition table in
+block 0 defines up to eight named partitions, each independently mountable via
+LittleFS. Files carry owner UIDs and Unix-style permission modes; UID 0 (System)
+bypasses all checks, while partitions, directories, and files can be marked
+read-only or hidden to protect system data from accidental damage via the
+API. Reads and writes have both synchronous and asynchronous variants; the
+async path accepts any FreeRTOS synchronisation primitive as a completion
+signal.
+
+**Cooling**
+
+Dual fan channels: an AC convection fan inside the oven cavity, and a DC board
+cooling fan with closed-loop speed control. Both are tachometer-monitored; a stall
+or out-of-range speed raises a fault.
+
+## Safety
+
+This device controls mains-voltage heating elements. Over-temperature protection is
+enforced in firmware, but the last-resort cutoff is the fuse in the UK mains plug.
+Do not defeat it.
+
+The board carries a header for a hardware emergency-stop button — ideally a
+very large, extremely red, normally-closed mushroom-head type. The signal is held
+low while the button is armed; pressing it breaks the circuit and immediately cuts
+power to all AC loads (heaters, fan, and light) at the hardware level, with no
+possibility of MCU override. This wiring convention also means a disconnected
+or broken cable is treated as a stop rather than a silent bypass. If no
+button is fitted, the header must be shorted with a jumper to allow normal
+operation.
+
+## Build
+
+**Prerequisites**
+
+- ARM GNU Toolchain (`arm-none-eabi-gcc`)
+- CMake 3.22+
+- Ninja
+- Whisky, large
+
+**Compile**
+
+    mkdir build && cd build
+    cmake .. -GNinja
+    ninja
+
+## Resources
+
+- Hardware design: https://oshwlab.com/trhosking/reflow-oven
+- API documentation: https://munger.github.io/Reflow-Oven/
 
 ---
 
-Copyright © 2026 Tim Hosking
-
-Licensed under the MIT License.
-
-SAFETY WARNING: This device controls mains-voltage elements. A physical hardware-level thermal cutoff (thermal fuse) must be installed to prevent fire in the event of software or hardware switching failure.
+Copyright &copy; 2026 Tim Hosking — MIT Licence
