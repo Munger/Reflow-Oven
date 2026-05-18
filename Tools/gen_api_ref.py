@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""Generate a Markdown API reference from Doxygen XML output.
-
-Usage: gen_api_ref.py <xml_dir> <output_file>
-
-Reads Doxygen XML from <xml_dir>, writes a module-by-module Markdown
-reference to <output_file>. Only public header files are included;
-static functions and .c files are skipped.
-"""
+## @file gen_api_ref.py
+##
+## @brief Markdown API reference generator — reads Doxygen XML, writes a
+##        module-by-module Markdown reference to the output file.
+##
+## Only public header files are included; static functions and .c files
+## are skipped. Invoked automatically by the CMake docs target after
+## Doxygen runs.
+##
+## Usage: gen_api_ref.py \<xml_dir\> \<output_file\>
+##
+## @copyright Copyright (c) 2026 Tim Hosking
+## @see https://github.com/munger
+## @par Licence: MIT
 
 import sys
 import xml.etree.ElementTree as ET
