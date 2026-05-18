@@ -1,11 +1,10 @@
 /// @file MCU.h
 ///
-/// @brief STM32G0 MCU peripheral driver (internal ADC, RTC, power monitoring).
+/// @brief STM32G0 MCU peripheral driver (internal ADC, RTC, power monitoring, CRC).
 ///
-/// Reads the internal temperature sensor, VREFINT, and battery voltage from
-/// the ADC DMA buffer. All getters return cached values and are safe to call
-/// from any task context. Time writes are queued by MCUSetTime() and applied
-/// by MCUProcess() to avoid blocking callers.
+/// Feature availability is controlled by Features.h. Each optional sub-system
+/// (RTC, battery, internal temperature, VCC, hardware CRC) compiles away entirely
+/// when its flag is set to 0.
 ///
 /// @copyright Copyright (c) 2026 Tim Hosking
 /// @see https://github.com/munger
@@ -15,7 +14,9 @@
 #define MCU_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
+#include "Features.h"
 #include "Types.h"
 #include "SystemStatusFlags.h"
 
@@ -26,22 +27,24 @@ typedef enum {
 } MCUID;
 
 /// @brief Status and diagnostic flag bit positions for the MCU module.
-/// These map 1:1 to the bits in the private per-instance status event flag group.
+/// Flags for disabled features are defined but never set.
 typedef enum {
     FlagMCUStatusReady = 0,          ///< MCU peripherals initialised
-    FlagMCUStatusLowBattery,          ///< Battery level below 15%
-    FlagMCUStatusCriticalBattery,     ///< Battery level below 5%
-    FlagMCUStatusOverTemp,            ///< Internal junction temperature above 80°C
-    FlagMCUStatusVoltageUnstable,     ///< VCC outside the expected 3.0–3.6 V range
-    FlagMCUStatusRtcInvalid,          ///< RTC set or read failed
+    FlagMCUStatusLowBattery,          ///< Battery level below 15%          — FEATURE_BATTERY_MONITOR
+    FlagMCUStatusCriticalBattery,     ///< Battery level below 5%           — FEATURE_BATTERY_MONITOR
+    FlagMCUStatusOverTemp,            ///< Junction temperature above 80°C  — FEATURE_MCU_TEMP_MONITOR
+    FlagMCUStatusVoltageUnstable,     ///< VCC outside 3.0–3.6 V           — FEATURE_VCC_MONITOR
+    FlagMCUStatusRtcInvalid,          ///< RTC set or read failed           — FEATURE_RTC
     FlagMCUStatusAdcError,            ///< ADC DMA peripheral error
-    FlagMCUStatusTimePending,         ///< RTC time write queued; not yet applied by MCUProcess().
+    FlagMCUStatusCrcBusy,             ///< CRC engine acquired; computation in progress
+    FlagMCUStatusTimePending,         ///< RTC time write queued            — FEATURE_RTC
 
     MCUFlagsCount
 } MCUStatusBit;
 
 _Static_assert( MCUFlagsCount <= 24, "MCUStatusFlags out of bounds" );
 
+#if FEATURE_RTC
 /// @brief Wall-clock time structure used for RTC get/set operations.
 typedef struct {
     uint8_t  Hours;    ///< Hour of the day (0–23)
@@ -51,6 +54,7 @@ typedef struct {
     uint8_t  Month;    ///< Month (1–12)
     uint16_t Year;     ///< Full year (e.g. 2026)
 } MCUTime, *MCUTimePtr;
+#endif // FEATURE_RTC
 
 /// @brief Opaque handle to an MCU instance.
 typedef struct MCUInstance* MCURef;
@@ -59,53 +63,54 @@ typedef struct MCUInstance* MCURef;
 void        MCUInitModule( void );
 
 /// @brief Return a handle to the specified MCU instance.
-/// @param[in] id MCU instance identifier.
-/// @return Handle to the instance, or NULL if @p id is out of range.
 MCURef      MCUOpen( MCUID id );
 
-/// @brief Return the supply voltage computed from the VREFINT ADC channel.
-/// @param[in] mcu Handle returned by MCUOpen().
-/// @return VCC in millivolts (e.g. 3300 = 3.3 V); returns the last cached value on zero input.
-/// @note Pure computation from the DMA buffer — safe to call from any task context.
-Voltage     MCUGetVcc( MCURef mcu );
-
-/// @brief Return the MCU junction temperature computed from the internal ADC channel.
-/// @param[in] mcu Handle returned by MCUOpen().
-/// @return Temperature in milli-degrees Celsius; returns the last cached value if VCC is zero.
-/// @note Pure computation from the DMA buffer — safe to call from any task context.
-Temperature MCUGetInternalTemp( MCURef mcu );
-
-/// @brief Return the battery voltage from the VBAT ADC channel.
-/// @param[in] mcu Handle returned by MCUOpen().
-/// @return Battery voltage in millivolts; uses the last cached VCC for the scaling factor.
-/// @note Pure computation from the DMA buffer — safe to call from any task context.
-Voltage     MCUGetBatteryVoltage( MCURef mcu );
-
-/// @brief Return the battery charge level as a permille value.
-/// @param[in] mcu Handle returned by MCUOpen().
-/// @return 0 (empty, ≤3.0 V) to 1000 (full, ≥4.2 V).
-/// @note Pure computation — no flag side-effects. Safe to call from any task context.
-Permille    MCUGetBatteryLevel( MCURef mcu );
-
 /// @brief Return the full status bitmask from the private instance status flags.
-/// @param[in] mcu Handle returned by MCUOpen().
-/// @return Bitmask of MCUStatusBit flags, or 0 if @p mcu is NULL.
 uint32_t    MCUGetStatus( MCURef mcu );
-
-/// @brief Read the current wall-clock time from the RTC.
-/// @param[in]  mcu  Handle returned by MCUOpen().
-/// @param[out] time Pointer to an MCUTime struct to populate.
-/// @note Fast register read — no blocking. Safe to call from any task context.
-void        MCUGetTime( MCURef mcu, MCUTimePtr time );
-
-/// @brief Queue a wall-clock time update; applied by MCUProcess() on the next tick.
-/// @param[in] mcu  Handle returned by MCUOpen().
-/// @param[in] time Pointer to the new time to apply.
-/// @note The critical section inside ensures atomicity of the pending-time write.
-void        MCUSetTime( MCURef mcu, const MCUTimePtr time );
 
 /// @brief Refresh cached ADC readings, apply pending RTC writes, and update status flags.
 /// @warning All ADC and RTC hardware access occurs here. Do not call from ISR context.
-void MCUProcess( void );
+void        MCUProcess( void );
+
+#if FEATURE_VCC_MONITOR
+/// @brief Return the supply voltage computed from the VREFINT ADC channel.
+Voltage     MCUGetVcc( MCURef mcu );
+#endif // FEATURE_VCC_MONITOR
+
+#if FEATURE_MCU_TEMP_MONITOR
+/// @brief Return the MCU junction temperature computed from the internal ADC channel.
+Temperature MCUGetInternalTemp( MCURef mcu );
+#endif // FEATURE_MCU_TEMP_MONITOR
+
+#if FEATURE_BATTERY_MONITOR
+/// @brief Return the battery voltage from the VBAT ADC channel.
+Voltage     MCUGetBatteryVoltage( MCURef mcu );
+
+/// @brief Return the battery charge level as a permille value (0 = empty, 1000 = full).
+Permille    MCUGetBatteryLevel( MCURef mcu );
+#endif // FEATURE_BATTERY_MONITOR
+
+#if FEATURE_RTC
+/// @brief Read the current wall-clock time from the RTC.
+void        MCUGetTime( MCURef mcu, MCUTimePtr time );
+
+/// @brief Queue a wall-clock time update; applied by MCUProcess() on the next tick.
+void        MCUSetTime( MCURef mcu, const MCUTimePtr time );
+#endif // FEATURE_RTC
+
+/// @brief Acquire the CRC engine and reset the accumulator. Blocks if already in use.
+void        CRCInit( MCURef mcu );
+
+/// @brief Feed a byte buffer into the running CRC-32 accumulator.
+void        CRCUpdate( MCURef mcu, const uint8_t* data, size_t length );
+
+/// @brief Return the final CRC-32 value and release the CRC engine.
+uint32_t    CRCResult( MCURef mcu );
+
+/// @brief Compute CRC-32 over a contiguous buffer. Acquires and releases the engine internally.
+uint32_t    CRCCompute( MCURef mcu, const uint8_t* data, size_t length );
+
+/// @brief Compute CRC-32 and compare with an expected value.
+bool        CRCVerify( MCURef mcu, const uint8_t* data, size_t length, uint32_t expected );
 
 #endif // MCU_H

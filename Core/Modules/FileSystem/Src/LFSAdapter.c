@@ -14,6 +14,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_FILE_SYSTEM
+
 #include "lfs.h"
 #include "FSInternal.h"
 #include "Partition.h"
@@ -126,3 +130,5 @@ void LFSAdapterConfigure( struct lfs_config* cfg,
     cfg->prog_buffer      = progBuf;
     cfg->lookahead_buffer = lookahead;
 }
+
+#endif // FEATURE_FILE_SYSTEM

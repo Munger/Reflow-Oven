@@ -2,10 +2,9 @@
 ///
 /// @brief NTC thermistor driver using the STM32 internal ADC DMA buffer.
 ///
-/// Manages three NTC thermistor channels (two cold-junction, one oven cavity).
-/// Each instance uses a lookup table for linearisation. Per-instance status flags
-/// are private to thermistor.c. TMGetTemperature() returns a cached, interpolated
-/// value safe to call from any task context.
+/// Only the channels enabled in Features.h are compiled in. ThermistorCount
+/// reflects only the enabled channels; the ADC DMA scan sequence in CubeMX
+/// must be configured to match.
 ///
 /// @copyright Copyright (c) 2026 Tim Hosking
 /// @see https://github.com/munger
@@ -13,6 +12,15 @@
 
 #ifndef THERMISTOR_H
 #define THERMISTOR_H
+
+#include "Features.h"
+
+/// @brief Sentinel value for externalCjtId meaning "no external CJT thermistor —
+///        fall back to the MAX31856 chip-internal cold-junction measurement".
+///        Always defined regardless of FEATURE_THERMISTORS.
+#define kThermistorNone  0xFFu
+
+#if FEATURE_THERMISTORS
 
 #include "SystemStatusFlags.h"
 #include "Types.h"
@@ -32,11 +40,20 @@ typedef enum {
 
 _Static_assert( TMFlagsCount <= 24, "Thermistor status flags out of bounds" );
 
-/// @brief Logical identifiers for the three NTC thermistor channels.
+/// @brief Logical identifiers for the enabled NTC thermistor channels.
+///
+/// Only channels enabled in Features.h appear in this enum. ThermistorCount
+/// equals the number of enabled channels; it also equals the ADC DMA scan depth.
 typedef enum {
-    ThermistorCJT1 = 0,   ///< Cold-junction thermistor for Thermocouple1
-    ThermistorCJT2,        ///< Cold-junction thermistor for Thermocouple2
-    ThermistorOven,        ///< Oven cavity NTC (inverted divider network)
+#if FEATURE_THERMISTOR_CJT_1
+    ThermistorCJT1,   ///< Cold-junction thermistor for Thermocouple1
+#endif // FEATURE_THERMISTOR_CJT_1
+#if FEATURE_THERMISTOR_CJT_2
+    ThermistorCJT2,   ///< Cold-junction thermistor for Thermocouple2
+#endif // FEATURE_THERMISTOR_CJT_2
+#if FEATURE_THERMISTOR_OVEN
+    ThermistorOven,   ///< Oven cavity NTC (inverted divider network)
+#endif // FEATURE_THERMISTOR_OVEN
 
     ThermistorCount
 } ThermistorID;
@@ -76,5 +93,7 @@ uint32_t TMGetStatus( ThermistorRef thermistor );
 ///
 /// @warning Must be called from task context — reads HAL ADC state.
 void TMProcess( void );
+
+#endif // FEATURE_THERMISTORS
 
 #endif // THERMISTOR_H

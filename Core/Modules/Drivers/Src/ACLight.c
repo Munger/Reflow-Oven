@@ -13,6 +13,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_OVEN_LIGHT
+
 #include <string.h>
 
 #include "FreeRTOS.h"
@@ -152,3 +156,5 @@ static void DriveAtPower( ACLightInstancePtr light, Permille power ) {
     p.burstWindow  = kBurstWindow;
     TriacRun( light->triac, p );
 }
+
+#endif // FEATURE_OVEN_LIGHT

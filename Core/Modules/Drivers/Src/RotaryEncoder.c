@@ -12,6 +12,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_ROTARY_ENCODER
+
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -86,6 +90,8 @@ RotaryEncoderRef REOpen( RotaryEncoderID id, I2CRef i2c ) {
     if ( re->i2c == NULL ) {
         re->id  = id;
         re->i2c = i2c;
+        osEventFlagsSet( ovenFanStatus, BIT( FlagREStatusReady ) );
+        osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagRotaryEncoderReady ) );
     }
     return re;
 }
@@ -221,3 +227,5 @@ Rpm REGetVelocity( RotaryEncoderRef encoder ) {
 uint32_t REGetStatus( void ) {
     return osEventFlagsGet( ovenFanStatus );
 }
+
+#endif // FEATURE_ROTARY_ENCODER

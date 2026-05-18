@@ -13,6 +13,10 @@
 #ifndef USBPD_TASK_H
 #define USBPD_TASK_H
 
+#include "Features.h"
+
+#if FEATURE_USB_PD
+
 #include "TaskUtils.h"
 
 /// @brief FreeRTOS thread handle for the USBPD task.
@@ -23,5 +27,7 @@ void USBPDTaskInit( void );
 
 /// @brief Call USBPDProcess() every 10 ms.
 void USBPDTaskLoop( void );
+
+#endif // FEATURE_USB_PD
 
 #endif // USBPD_TASK_H

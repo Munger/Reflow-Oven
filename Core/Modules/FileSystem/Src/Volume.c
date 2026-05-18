@@ -15,6 +15,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_FILE_SYSTEM
+
 #include <string.h>
 #include "Volume.h"
 #include "FSInternal.h"
@@ -200,3 +204,5 @@ VolRef VolResolve( const char* absPath, const char** relPath ) {
     }
     return NULL;
 }
+
+#endif // FEATURE_FILE_SYSTEM

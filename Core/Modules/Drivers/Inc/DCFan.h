@@ -16,6 +16,10 @@
 #ifndef DCFAN_H
 #define DCFAN_H
 
+#include "Features.h"
+
+#if FEATURE_BOARD_FAN
+
 #include <stdbool.h>
 
 #include "Types.h"
@@ -104,5 +108,7 @@ void               DCFanCalibrate( DCFanRef fan );
 /// @brief Drive the I2C state machine, apply pending speed commands, and update status flags.
 /// @warning All I2C hardware access occurs here. Do not call from ISR context.
 void               DCFanProcess( void );
+
+#endif // FEATURE_BOARD_FAN
 
 #endif // DCFAN_H

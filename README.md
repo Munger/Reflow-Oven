@@ -86,7 +86,7 @@ operation.
 
 - Hardware design: https://oshwlab.com/trhosking/reflow-oven
 - Source documentation: https://munger.github.io/Reflow-Oven/
-- Function reference: [Docs/ModuleRef.md](Docs/ModuleRef.md)
+- Function reference: <a href="Docs/ModuleRef.md">Docs/ModuleRef.md</a>
 
 ---
 

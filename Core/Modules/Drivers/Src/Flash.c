@@ -13,6 +13,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_FLASH
+
 #include <string.h>
 
 #include "Flash.h"
@@ -303,3 +307,5 @@ uint32_t FlashGetSectorCount( FlashRef flash ) {
 uint32_t FlashGetStatus( FlashRef flash ) {
     return ( flash != NULL ) ? osEventFlagsGet( flash->statusHandle ) : 0;
 }
+
+#endif // FEATURE_FLASH

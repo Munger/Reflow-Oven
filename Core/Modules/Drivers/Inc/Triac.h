@@ -14,6 +14,7 @@
 #ifndef TRIAC_H
 #define TRIAC_H
 
+#include "Features.h"
 #include "Types.h"
 #include "SystemStatusFlags.h"
 
@@ -34,13 +35,25 @@ typedef enum {
 
 _Static_assert( TriacFlagsCount <= 24, "TriacStatusFlags out of bounds" );
 
-/// @brief Logical identifiers for the five AC load channels.
+/// @brief Logical identifiers for fitted AC load channels.
+/// Only channels whose FEATURE_ flag is set are compiled in. TriacCount
+/// reflects the number of fitted channels; the internal array is sized accordingly.
 typedef enum {
-    TriacHeaterTop    = 0,  ///< Top heating element
-    TriacHeaterRear,         ///< Rear heating element
-    TriacHeaterBottom,       ///< Bottom heating element
-    TriacOvenFan,            ///< AC oven circulation fan
-    TriacLight,              ///< Oven interior light
+#if FEATURE_HEATER_TOP
+    TriacHeaterTop,    ///< Top heating element
+#endif // FEATURE_HEATER_TOP
+#if FEATURE_HEATER_REAR
+    TriacHeaterRear,   ///< Rear heating element
+#endif // FEATURE_HEATER_REAR
+#if FEATURE_HEATER_BOTTOM
+    TriacHeaterBottom, ///< Bottom heating element
+#endif // FEATURE_HEATER_BOTTOM
+#if FEATURE_OVEN_FAN
+    TriacOvenFan,      ///< AC oven circulation fan
+#endif // FEATURE_OVEN_FAN
+#if FEATURE_OVEN_LIGHT
+    TriacLight,        ///< Oven interior light
+#endif // FEATURE_OVEN_LIGHT
 
     TriacCount
 } TriacID;

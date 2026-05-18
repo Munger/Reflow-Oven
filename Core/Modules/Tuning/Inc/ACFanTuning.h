@@ -20,6 +20,10 @@
 #ifndef ACFANTUNING_H
 #define ACFANTUNING_H
 
+#include "Features.h"
+
+#if FEATURE_AC_FAN_CALIBRATION
+
 #include <stdbool.h>
 
 #include "Types.h"
@@ -86,5 +90,7 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut );
 ///
 /// @note A value of 0 applies slot 0 (motor off). Values above 1000 are clamped.
 void ACFanDrive( const ACFanProfileMapPtr map, Permille requestedPm );
+
+#endif // FEATURE_AC_FAN_CALIBRATION
 
 #endif // ACFANTUNING_H

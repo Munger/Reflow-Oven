@@ -15,6 +15,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_BOARD_FAN
+
 #include <string.h>
 
 #include "FreeRTOS.h"
@@ -277,3 +281,5 @@ uint32_t DCFanGetStatus( DCFanRef fan ) {
     if ( fan == NULL ) return BIT( FlagDCFanStatusHardwareFault );
     return osEventFlagsGet( fan->statusHandle );
 }
+
+#endif // FEATURE_BOARD_FAN

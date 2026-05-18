@@ -12,6 +12,10 @@
 #ifndef FSTYPES_H
 #define FSTYPES_H
 
+#include "Features.h"
+
+#if FEATURE_FILE_SYSTEM
+
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -119,5 +123,7 @@ typedef struct FSStat {
     FSUid    uid;   ///< Owner UID
     bool     isDir; ///< True if this entry is a directory
 } FSStat, *FSStatPtr;
+
+#endif // FEATURE_FILE_SYSTEM
 
 #endif // FSTYPES_H

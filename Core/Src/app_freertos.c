@@ -31,6 +31,7 @@
 #include "APITask.h"
 #include "DeviceTask.h"
 #include "LoggingTask.h"
+#include "ReflowTask.h"
 #include "USBPDTask.h"
 #include "ManagerTask.h"
 
@@ -91,10 +92,22 @@ const osThreadAttr_t USBPDTask_attributes = {
   .priority = (osPriority_t) osPriorityAboveNormal,
   .stack_size = 512 * 4
 };
+/* Definitions for ReflowTask */
+osThreadId_t ReflowTaskHandle;
+const osThreadAttr_t ReflowTask_attributes = {
+  .name = "ReflowTask",
+  .priority = (osPriority_t) osPriorityNormal,
+  .stack_size = 256 * 4
+};
 /* Definitions for SensorsQueue */
 osMessageQueueId_t SensorsQueueHandle;
 const osMessageQueueAttr_t SensorsQueue_attributes = {
   .name = "SensorsQueue"
+};
+/* Definitions for LoggingQueue */
+osMessageQueueId_t LoggingQueueHandle;
+const osMessageQueueAttr_t LoggingQueue_attributes = {
+  .name = "LoggingQueue"
 };
 /* Definitions for I2CBusSem */
 osSemaphoreId_t I2CBusSemHandle;
@@ -112,6 +125,14 @@ const osSemaphoreAttr_t SPIBusSem_attributes = {
   .cb_mem = &SPIBusSemControlBlock,
   .cb_size = sizeof(SPIBusSemControlBlock),
 };
+/* Definitions for CRCSem */
+osSemaphoreId_t CRCSemHandle;
+osStaticSemaphoreDef_t CRCSemControlBlock;
+const osSemaphoreAttr_t CRCSem_attributes = {
+  .name = "CRCSem",
+  .cb_mem = &CRCSemControlBlock,
+  .cb_size = sizeof(CRCSemControlBlock),
+};
 /* Definitions for SystemStatusFlags */
 osEventFlagsId_t SystemStatusFlagsHandle;
 const osEventFlagsAttr_t SystemStatusFlags_attributes = {
@@ -127,11 +148,6 @@ osEventFlagsId_t FaultFlagsHandle;
 const osEventFlagsAttr_t FaultFlags_attributes = {
   .name = "FaultFlags"
 };
-/* Definitions for ReflowStatusFlags */
-osEventFlagsId_t ReflowStatusFlagsHandle;
-const osEventFlagsAttr_t ReflowStatusFlags_attributes = {
-  .name = "ReflowStatusFlags"
-};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -143,6 +159,7 @@ void StartDeviceTask(void *argument);
 void StartAPITask(void *argument);
 void StartLoggingTask(void *argument);
 void StartUSBPDTask(void *argument);
+void StartReflowTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -179,6 +196,9 @@ void MX_FREERTOS_Init(void) {
   /* creation of SPIBusSem */
   SPIBusSemHandle = osSemaphoreNew(1, 1, &SPIBusSem_attributes);
 
+  /* creation of CRCSem */
+  CRCSemHandle = osSemaphoreNew(1, 1, &CRCSem_attributes);
+
   /* USER CODE BEGIN RTOS_SEMAPHORES */
     /* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
@@ -190,6 +210,9 @@ void MX_FREERTOS_Init(void) {
   /* Create the queue(s) */
   /* creation of SensorsQueue */
   SensorsQueueHandle = osMessageQueueNew (3, 48, &SensorsQueue_attributes);
+
+  /* creation of LoggingQueue */
+  LoggingQueueHandle = osMessageQueueNew (16, sizeof(uint16_t), &LoggingQueue_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
     /* add queues, ... */
@@ -211,6 +234,9 @@ void MX_FREERTOS_Init(void) {
   /* creation of USBPDTask */
   USBPDTaskHandle = osThreadNew(StartUSBPDTask, NULL, &USBPDTask_attributes);
 
+  /* creation of ReflowTask */
+  ReflowTaskHandle = osThreadNew(StartReflowTask, NULL, &ReflowTask_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
     /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -224,9 +250,6 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of FaultFlags */
   FaultFlagsHandle = osEventFlagsNew(&FaultFlags_attributes);
-
-  /* creation of ReflowStatusFlags */
-  ReflowStatusFlagsHandle = osEventFlagsNew(&ReflowStatusFlags_attributes);
 
   /* USER CODE BEGIN RTOS_EVENTS */
     /* add events, ... */
@@ -323,6 +346,24 @@ void StartUSBPDTask(void *argument)
     USBPDTaskLoop();
   }
   /* USER CODE END StartUSBPDTask */
+}
+
+/* USER CODE BEGIN Header_StartReflowTask */
+/**
+* @brief Function implementing the ReflowTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartReflowTask */
+void StartReflowTask(void *argument)
+{
+  /* USER CODE BEGIN StartReflowTask */
+    ReflowTaskInit();
+
+    for ( ;; ) {
+      ReflowTaskLoop();
+    }
+  /* USER CODE END StartReflowTask */
 }
 
 /* Private application code --------------------------------------------------*/

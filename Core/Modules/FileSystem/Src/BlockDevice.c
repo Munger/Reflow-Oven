@@ -10,6 +10,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_FILE_SYSTEM
+
 #include "BlockDevice.h"
 
 // ============================================================================
@@ -71,3 +75,5 @@ FSResult BDSync( BDRef bd ) {
     if ( bd == NULL || bd->ops->sync == NULL ) return FSResultNotReady;
     return bd->ops->sync( bd );
 }
+
+#endif // FEATURE_FILE_SYSTEM

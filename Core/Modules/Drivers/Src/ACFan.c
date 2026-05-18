@@ -13,6 +13,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_OVEN_FAN
+
 #include <string.h>
 
 #include "FreeRTOS.h"
@@ -21,10 +25,14 @@
 
 #include "ACFan.h"
 #include "ACFanTuning.h"
+#if FEATURE_FILE_SYSTEM
 #include "FSFile.h"
 #include "FSTypes.h"
+#endif // FEATURE_FILE_SYSTEM
 
+#if FEATURE_FILE_SYSTEM
 static const char* kProfilePath = "/config/acfan.profile";
+#endif // FEATURE_FILE_SYSTEM
 
 /// @brief Permille increment between adjacent profile slots (= 1000 / kAcFanNumSteps).
 static const Permille kSpeedStepPm = 1000U / kAcFanNumSteps;
@@ -66,6 +74,7 @@ ACFanRef ACFanOpen( ACFanID id, TriacID triacID, RotaryEncoderID encoderID ) {
         fan->triac   = TriacOpen( triacID );
         fan->encoder = REGetRef( encoderID );
 
+#if FEATURE_FILE_SYSTEM
         FileRef f = FileOpen( kProfilePath, FSOpenReadOnly, 0 );
         if ( f != NULL ) {
             size_t read = 0;
@@ -80,6 +89,9 @@ ACFanRef ACFanOpen( ACFanID id, TriacID triacID, RotaryEncoderID encoderID ) {
         } else {
             osEventFlagsSet( fan->statusHandle, BIT( FlagACFanCalibrationRequired ) );
         }
+#else
+        osEventFlagsSet( fan->statusHandle, BIT( FlagACFanCalibrationRequired ) );
+#endif // FEATURE_FILE_SYSTEM
     }
 
     return fan;
@@ -230,3 +242,5 @@ static void DriveAtSpeed( ACFanInstancePtr fan, Permille requestedPm ) {
 
     TriacRun( fan->triac, p );
 }
+
+#endif // FEATURE_OVEN_FAN

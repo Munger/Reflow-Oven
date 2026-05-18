@@ -18,6 +18,10 @@
 #ifndef VOLUME_H
 #define VOLUME_H
 
+#include "Features.h"
+
+#if FEATURE_FILE_SYSTEM
+
 #include <stdint.h>
 #include "FSTypes.h"
 #include "Partition.h"
@@ -100,5 +104,7 @@ uint32_t VolGetStatus( VolRef vol );
 /// @param vol Handle returned by VolMount().
 /// @return Partition handle, or NULL if @p vol is NULL.
 PartRef VolGetPartition( VolRef vol );
+
+#endif // FEATURE_FILE_SYSTEM
 
 #endif // VOLUME_H

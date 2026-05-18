@@ -12,6 +12,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_BUZZER
+
 #include <string.h>
 #include "FreeRTOS.h"
 #include "task.h"
@@ -221,3 +225,5 @@ static void TimerHandler( TIM_HandleTypeDef *htim ) {
 uint32_t BuzzerGetStatus( void ) {
     return osEventFlagsGet( buzzerStatus );
 }
+
+#endif // FEATURE_BUZZER

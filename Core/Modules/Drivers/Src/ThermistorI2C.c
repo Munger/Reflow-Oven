@@ -14,6 +14,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_THERMISTOR_HEATSINK
+
 #include <string.h>
 
 #include "I2CAddress.h"
@@ -205,3 +209,5 @@ uint32_t TMI2CGetStatus( ThermistorI2CRef thermistor ) {
     if ( thermistor == NULL ) return BIT( FlagTMI2CStatusHardwareFault );
     return osEventFlagsGet( thermistor->statusHandle );
 }
+
+#endif // FEATURE_THERMISTOR_HEATSINK

@@ -12,6 +12,10 @@
 #ifndef FLASHBLOCKDEVICE_H
 #define FLASHBLOCKDEVICE_H
 
+#include "Features.h"
+
+#if FEATURE_FILE_SYSTEM
+
 #include "BlockDevice.h"
 #include "Flash.h"
 
@@ -25,5 +29,7 @@
 /// @return Block device handle, or NULL if @p flash is NULL or the device
 ///         pool is full.
 BDRef FBDRegister( FlashRef flash );
+
+#endif // FEATURE_FILE_SYSTEM
 
 #endif // FLASHBLOCKDEVICE_H

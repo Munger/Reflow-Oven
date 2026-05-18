@@ -19,6 +19,10 @@
 #ifndef BLOCKDEVICE_H
 #define BLOCKDEVICE_H
 
+#include "Features.h"
+
+#if FEATURE_FILE_SYSTEM
+
 #include <stdint.h>
 #include "FSTypes.h"
 
@@ -104,5 +108,7 @@ FSResult BDProg ( BDRef bd, uint32_t block, uint32_t off,
                   const void* buf, uint32_t size );
 FSResult BDErase( BDRef bd, uint32_t block );
 FSResult BDSync ( BDRef bd );
+
+#endif // FEATURE_FILE_SYSTEM
 
 #endif // BLOCKDEVICE_H

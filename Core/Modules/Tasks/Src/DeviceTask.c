@@ -10,13 +10,16 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
 #include "DeviceTask.h"
+#include "MCU.h"
+#include "OvenController.h"
+#include "PowerManager.h"
 #include "SystemStatusFlags.h"
 #include "Buzzer.h"
 #include "DCFan.h"
-#include "MCU.h"
-#include "PowerManager.h"
 #include "RotaryEncoder.h"
+#include "ACFan.h"
 #include "Thermistor.h"
 #include "ThermistorI2C.h"
 #include "Thermocouple.h"
@@ -38,11 +41,27 @@ void DeviceTaskInit( void ) {
 void DeviceTaskLoop( void ) {
     PMProcess();
     MCUProcess();
+#if FEATURE_BUZZER
     BuzzerProcess();
+#endif // FEATURE_BUZZER
+#if FEATURE_BOARD_FAN
     DCFanProcess();
+#endif // FEATURE_BOARD_FAN
+#if FEATURE_ROTARY_ENCODER
     REProcess();
+#endif // FEATURE_ROTARY_ENCODER
+#if FEATURE_THERMISTORS
     TMProcess();
+#endif // FEATURE_THERMISTORS
+#if FEATURE_THERMISTOR_HEATSINK
     TMI2CProcess();
+#endif // FEATURE_THERMISTOR_HEATSINK
+#if FEATURE_THERMOCOUPLES
     TCProcess();
+#endif // FEATURE_THERMOCOUPLES
+    OCProcess();
+#if FEATURE_OVEN_FAN
+    ACFanProcess();
+#endif // FEATURE_OVEN_FAN
     TriacProcess();
 }

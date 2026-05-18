@@ -41,6 +41,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_AC_FAN_CALIBRATION
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>  // abs()
@@ -49,8 +53,8 @@
 #include "cmsis_os.h"
 
 #include "ACFanTuning.h"
-#include "rotaryencoder.h"
-#include "triac.h"
+#include "RotaryEncoder.h"
+#include "Triac.h"
 
 // ============================================================================
 // HARDWARE SELECTION
@@ -997,3 +1001,5 @@ void ACFanDrive( const ACFanProfileMapPtr map, Permille requestedPm ) {
 
     TriacRun( s_triac, p );
 }
+
+#endif // FEATURE_AC_FAN_CALIBRATION

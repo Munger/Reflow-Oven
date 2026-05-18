@@ -11,6 +11,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_FILE_SYSTEM
+
 #include "FlashBlockDevice.h"
 #include "BlockDevice.h"
 #include "Flash.h"
@@ -65,3 +69,5 @@ BDRef FBDRegister( FlashRef flash ) {
     };
     return BDRegister( &kFlashOps, flash, geo );
 }
+
+#endif // FEATURE_FILE_SYSTEM

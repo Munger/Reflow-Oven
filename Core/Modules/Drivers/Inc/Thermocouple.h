@@ -14,14 +14,25 @@
 #ifndef THERMOCOUPLE_H
 #define THERMOCOUPLE_H
 
+#include "Features.h"
+
+#if FEATURE_THERMOCOUPLES
+
 #include "Types.h"
 #include "SystemStatusFlags.h"
-#include "SPIManager.h"
 
-/// @brief Identifiers for the two thermocouple channels.
+/// @brief Identifiers for the enabled thermocouple channels.
+///
+/// Only channels enabled in Features.h appear in this enum. ThermocoupleCount
+/// equals the number of enabled channels and determines the instance array size.
 typedef enum {
-    Thermocouple1 = 0,  ///< Primary thermocouple (inside oven, top position)
-    Thermocouple2        ///< Secondary thermocouple (inside oven, bottom position)
+#if FEATURE_THERMOCOUPLE_1
+    Thermocouple1,  ///< Primary thermocouple (inside oven, top position)
+#endif // FEATURE_THERMOCOUPLE_1
+#if FEATURE_THERMOCOUPLE_2
+    Thermocouple2,  ///< Secondary thermocouple (inside oven, bottom position)
+#endif // FEATURE_THERMOCOUPLE_2
+    ThermocoupleCount
 } ThermocoupleID;
 
 /// @brief Status and fault flag bit positions for a MAX31856 channel.
@@ -38,6 +49,7 @@ typedef enum {
     FlagTCStatusCJTRangeHigh,     ///< Cold junction temperature above the configured upper limit
     FlagTCStatusRangeLow,         ///< Thermocouple temperature below the configured lower limit
     FlagTCStatusRangeHigh,        ///< Thermocouple temperature above the configured upper limit
+    FlagTCStatusExternalCJT,      ///< External NTC thermistor resolved and in use for CJT injection
     FlagTCStatusCJTMismatch,      ///< Injected CJT differs significantly from internal measurement
     FlagTCStatusHardwareFault,    ///< SPI communication failure or internal IC error
     FlagTCStatusSamplePending,    ///< CJT injection and conversion cycle queued; not yet applied.
@@ -51,23 +63,23 @@ _Static_assert( TCFlagsCount <= 24, "ThermocoupleStatusFlags out of bounds" );
 /// @brief Opaque handle to a thermocouple instance.
 typedef struct Thermocouple* ThermocoupleRef;
 
-/// @brief Initialise both thermocouple instances, configure the MAX31856 registers over SPI.
+/// @brief Allocate per-instance resources and create private event flag groups.
 ///
-/// Creates per-instance private event flag groups via osEventFlagsNew().
-/// Configures Type-K thermocouple mode, auto-conversion, and open-circuit detection.
+/// Compile-time fields (GPIO pins, fault bits) are set in the static initialiser.
+/// Only RTOS handles (osEventFlagsNew) are created here. Does not access SPI hardware.
 void               TCInitModule( void );
 
 /// @brief Open a handle to a specific thermocouple instance and configure the MAX31856.
 ///
-/// On first call for a given ID: stores the SPI bus reference, writes CR0/CR1 to
+/// On first call for a given ID: opens the SPI bus internally, writes CR0/CR1 to
 /// the MAX31856 hardware, resolves the CJT thermistor reference, and signals
 /// DeviceStatusFlagsHandle. Subsequent calls with the same ID return the existing
-/// instance without re-configuring hardware.
+/// instance without re-configuring hardware. Safe to call from any module —
+/// idempotency means the first caller initialises and all subsequent callers reuse.
 ///
-/// @param[in] thermocoupleID Channel identifier (Thermocouple1 or Thermocouple2).
-/// @param[in] spi            SPI bus handle returned by SPIOpen().
+/// @param[in] thermocoupleID Channel identifier.
 /// @return Handle to the instance.
-ThermocoupleRef    TCOpen( ThermocoupleID thermocoupleID, SPIRef spi );
+ThermocoupleRef    TCOpen( ThermocoupleID thermocoupleID );
 
 /// @brief Signal that a new conversion should begin on the next TCProcess() tick.
 /// @param[in] tc Handle returned by TCOpen().
@@ -101,9 +113,9 @@ Temperature        TCGetCJT( ThermocoupleRef tc );
 /// @note Safe to call from any task context without blocking.
 uint32_t           TCGetStatus( ThermocoupleRef tc );
 
-/// @brief Service both thermocouple instances: inject CJT, decode temperature, read fault register.
+/// @brief Service all thermocouple instances: inject CJT, decode temperature, read fault register.
 ///
-/// Iterates both instances each call. For each instance:
+/// Iterates all enabled instances each call. For each instance:
 ///   - If a sample was requested, writes the CJT to the MAX31856 via SPI.
 ///   - If DRDY is set (by ISR), reads and decodes the temperature registers.
 ///   - If a fault is pending (set by ISR), reads the status register.
@@ -121,5 +133,7 @@ void               TCHandleDRDYInterrupt( uint16_t GPIO_Pin );
 /// @param[in] GPIO_Pin HAL pin mask; compared against each instance's faultPin.
 /// @warning ISR context. osEventFlagsSet() only — SPI fault register read is deferred to TCProcess().
 void               TCHandleFaultInterrupt( uint16_t GPIO_Pin );
+
+#endif // FEATURE_THERMOCOUPLES
 
 #endif // THERMOCOUPLE_H

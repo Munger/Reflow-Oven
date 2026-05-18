@@ -18,6 +18,10 @@
 #ifndef ACFAN_H
 #define ACFAN_H
 
+#include "Features.h"
+
+#if FEATURE_OVEN_FAN
+
 #include "Types.h"
 #include "SystemStatusFlags.h"
 #include "RotaryEncoder.h"
@@ -87,5 +91,7 @@ uint32_t ACFanGetStatus( ACFanRef fan );
 /// @brief Apply any pending speed command and update status flags from the encoder.
 /// @warning Do not call from ISR context.
 void     ACFanProcess( void );
+
+#endif // FEATURE_OVEN_FAN
 
 #endif // ACFAN_H

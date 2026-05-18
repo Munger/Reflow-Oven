@@ -16,6 +16,10 @@
 #ifndef FLASH_H
 #define FLASH_H
 
+#include "Features.h"
+
+#if FEATURE_FLASH
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -138,5 +142,7 @@ uint32_t FlashGetSectorCount( FlashRef flash );
 /// @param[in] flash Handle returned by FlashOpen().
 /// @return Bitmask of FlashStatusBit values; 0 if @p flash is NULL.
 uint32_t FlashGetStatus( FlashRef flash );
+
+#endif // FEATURE_FLASH
 
 #endif // FLASH_H

@@ -21,6 +21,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_FILE_SYSTEM
+
 #include <string.h>
 #include "Partition.h"
 
@@ -205,3 +209,5 @@ FSResult PartCommit( void ) {
     if ( partDevice == NULL ) return FSResultNotReady;
     return WriteTable();
 }
+
+#endif // FEATURE_FILE_SYSTEM

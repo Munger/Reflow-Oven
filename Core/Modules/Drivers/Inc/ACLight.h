@@ -17,6 +17,10 @@
 #ifndef ACLIGHT_H
 #define ACLIGHT_H
 
+#include "Features.h"
+
+#if FEATURE_OVEN_LIGHT
+
 #include "Types.h"
 #include "SystemStatusFlags.h"
 #include "Triac.h"
@@ -67,5 +71,7 @@ uint32_t  ACLightGetStatus( ACLightRef light );
 /// @brief Apply any pending power command and update status flags.
 /// @warning Do not call from ISR context.
 void      ACLightProcess( void );
+
+#endif // FEATURE_OVEN_LIGHT
 
 #endif // ACLIGHT_H

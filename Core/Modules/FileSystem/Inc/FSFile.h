@@ -20,6 +20,10 @@
 #ifndef FSFILE_H
 #define FSFILE_H
 
+#include "Features.h"
+
+#if FEATURE_FILE_SYSTEM
+
 #include <stdint.h>
 #include <stddef.h>
 #include "FSTypes.h"
@@ -159,5 +163,7 @@ FSResult FileWriteAsync( FileRef file, const void* buf, size_t size,
 /// @param file Handle returned by FileOpen().
 /// @return The most recent non-OK FSResult, or FSResultOk if none.
 FSResult FileGetLastError( FileRef file );
+
+#endif // FEATURE_FILE_SYSTEM
 
 #endif // FSFILE_H

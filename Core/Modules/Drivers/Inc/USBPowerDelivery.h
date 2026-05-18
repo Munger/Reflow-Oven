@@ -18,6 +18,10 @@
 #ifndef USBPOWERDELIVERY_H
 #define USBPOWERDELIVERY_H
 
+#include "Features.h"
+
+#if FEATURE_USB_PD
+
 #include <stdint.h>
 #include "Types.h"
 #include "SystemStatusFlags.h"
@@ -125,5 +129,7 @@ void USBPDHandleFLGNInterrupt( uint16_t GPIO_Pin );
 /// @param[in] GPIO_Pin  HAL pin mask (unused).
 /// @warning ISR context. Sets a volatile flag only; I2C status read deferred to USBPDProcess().
 void USBPDHandleSourceInterrupt( uint16_t GPIO_Pin );
+
+#endif // FEATURE_USB_PD
 
 #endif // USBPOWERDELIVERY_H

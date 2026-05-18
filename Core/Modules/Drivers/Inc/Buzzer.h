@@ -14,6 +14,10 @@
 #ifndef BUZZER_H
 #define BUZZER_H
 
+#include "Features.h"
+
+#if FEATURE_BUZZER
+
 #include "Types.h"
 #include "SystemStatusFlags.h"
 
@@ -100,5 +104,7 @@ uint32_t BuzzerGetStatus( void );
 
 /// @brief Task-loop tick for the buzzer module (currently a no-op; sequencing is ISR-driven).
 void BuzzerProcess( void );
+
+#endif // FEATURE_BUZZER
 
 #endif // BUZZER_H

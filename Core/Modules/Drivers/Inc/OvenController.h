@@ -28,6 +28,7 @@
 
 #include <stdint.h>
 
+#include "Features.h"
 #include "Types.h"
 #include "SystemStatusFlags.h"
 
@@ -79,14 +80,14 @@ typedef struct {
     Temperature rampRate;     ///< Maximum rate of rise in milli-degrees C per second; 0 = unlimited
     union {
         struct {
-            uint8_t heaterTop    : 1;  ///< Permit the top heater
-            uint8_t heaterRear   : 1;  ///< Permit the rear convection element
-            uint8_t heaterBottom : 1;  ///< Permit the bottom heater
-            uint8_t thermistor   : 1;  ///< Include the top-cavity thermistor in temperature averaging
-            uint8_t tc1          : 1;  ///< Include TC1 (board surface) in temperature averaging
-            uint8_t tc2          : 1;  ///< Include TC2 (free air at board level) in temperature averaging
+            uint8_t heaterTop    : 1;  ///< Permit the top heater.
+            uint8_t heaterRear   : 1;  ///< Permit the rear convection element.
+            uint8_t heaterBottom : 1;  ///< Permit the bottom heater.
+            uint8_t              : 5;  ///< Reserved — must be zero.
         };
-        uint8_t resources;             ///< All resource bits as a single byte; 0xFF enables all
+        uint8_t heaters;               ///< All heater bits as a byte; matches ReflowStage.heaters.
+                                       ///<  Bit positions are fixed. OvenController.c gates actual
+                                       ///<  drive output against Features.h at compile time.
     };
 
     // Observable — written by OCStart(), read by Reflow task

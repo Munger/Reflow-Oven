@@ -20,11 +20,11 @@
 #include "task.h"
 #include "cmsis_os.h"
 
+#include "Features.h"
 #include "OvenController.h"
 #include "Triac.h"
 #include "Thermocouple.h"
 #include "Thermistor.h"
-#include "SPIManager.h"
 
 /// @brief Safe oven cavity maximum in milli-degrees C; de-energises all heaters if exceeded.
 static const Temperature kOverTempThreshold = 280000;
@@ -39,12 +39,24 @@ typedef struct OvenControllerInstance {
     OvenControlPBPtr  pb;           ///< Caller's PB; held for the duration of the run
     Temperature       rampTarget;   ///< Rate-limited intermediate setpoint
     uint32_t          lastTickMs;   ///< Kernel tick count at the last process call
+#if FEATURE_HEATER_TOP
     TriacRef          triacTop;     ///< Top quartz heating bank
+#endif // FEATURE_HEATER_TOP
+#if FEATURE_HEATER_REAR
     TriacRef          triacRear;    ///< Rear convection element
+#endif // FEATURE_HEATER_REAR
+#if FEATURE_HEATER_BOTTOM
     TriacRef          triacBottom;  ///< Bottom quartz heating bank
+#endif // FEATURE_HEATER_BOTTOM
+#if FEATURE_THERMOCOUPLE_1
     ThermocoupleRef   tc1;          ///< TC1 — board surface by wiring convention
+#endif // FEATURE_THERMOCOUPLE_1
+#if FEATURE_THERMOCOUPLE_2
     ThermocoupleRef   tc2;          ///< TC2 — free air at board level by wiring convention
+#endif // FEATURE_THERMOCOUPLE_2
+#if FEATURE_THERMISTOR_OVEN
     ThermistorRef     thermistor;   ///< Oven cavity thermistor, fixed at top of compartment
+#endif // FEATURE_THERMISTOR_OVEN
 } OvenControllerInstance, *OvenControllerInstancePtr;
 
 static OvenControllerInstance instances[ OvenControllerCount ];
@@ -59,7 +71,7 @@ static const uint8_t kFaultBit[ OvenControllerCount ] = {
     (uint8_t)FlagOvenControllerFault,
 };
 
-static Temperature SampleTemperature( OvenControllerInstancePtr inst, OvenControlPBPtr pb );
+static Temperature SampleTemperature( OvenControllerInstancePtr inst );
 static void        DriveHeaters( OvenControllerInstancePtr inst, OvenControlPBPtr pb, Permille power );
 static bool        HeaterFaulted( OvenControllerInstancePtr inst, OvenControlPBPtr pb );
 
@@ -87,14 +99,27 @@ OvenControllerRef OCOpen( OvenControllerID id ) {
     OvenControllerInstancePtr inst = &instances[ id ];
 
     if ( !( osEventFlagsGet( inst->statusHandle ) & BIT( FlagOvenControllerStatusReady ) ) ) {
-        SPIRef spi = SPIOpen( SPIBus1 );
-
-        inst->triacTop    = TriacOpen( TriacHeaterTop    );
-        inst->triacRear   = TriacOpen( TriacHeaterRear   );
+#if FEATURE_HEATER_TOP
+        inst->triacTop    = TriacOpen( TriacHeaterTop );
+        if ( inst->triacTop ) osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagHeaterTopReady ) );
+#endif // FEATURE_HEATER_TOP
+#if FEATURE_HEATER_REAR
+        inst->triacRear   = TriacOpen( TriacHeaterRear );
+        if ( inst->triacRear ) osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagHeaterRearReady ) );
+#endif // FEATURE_HEATER_REAR
+#if FEATURE_HEATER_BOTTOM
         inst->triacBottom = TriacOpen( TriacHeaterBottom );
-        inst->tc1         = TCOpen( Thermocouple1, spi );
-        inst->tc2         = TCOpen( Thermocouple2, spi );
+        if ( inst->triacBottom ) osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagHeaterBottomReady ) );
+#endif // FEATURE_HEATER_BOTTOM
+#if FEATURE_THERMOCOUPLE_1
+        inst->tc1         = TCOpen( Thermocouple1 );
+#endif // FEATURE_THERMOCOUPLE_1
+#if FEATURE_THERMOCOUPLE_2
+        inst->tc2         = TCOpen( Thermocouple2 );
+#endif // FEATURE_THERMOCOUPLE_2
+#if FEATURE_THERMISTOR_OVEN
         inst->thermistor  = TMOpen( ThermistorOven );
+#endif // FEATURE_THERMISTOR_OVEN
 
         osEventFlagsSet( inst->statusHandle,      BIT( FlagOvenControllerStatusReady ) );
         osEventFlagsSet( DeviceStatusFlagsHandle, BIT( kReadyBit[ id ] ) );
@@ -117,9 +142,15 @@ void OCStart( OvenControllerRef controller, OvenControlPBPtr pb ) {
     // Seed rampTarget from all available sensors so the ramp starts from actual cavity temperature
     int32_t sum   = 0;
     uint8_t count = 0;
-    if ( inst->tc1       ) { sum += TCGetTemperature( inst->tc1 );        count++; }
-    if ( inst->tc2       ) { sum += TCGetTemperature( inst->tc2 );        count++; }
-    if ( inst->thermistor) { sum += TMGetTemperature( inst->thermistor ); count++; }
+#if FEATURE_THERMOCOUPLE_1
+    if ( inst->tc1        ) { sum += TCGetTemperature( inst->tc1 );        count++; }
+#endif // FEATURE_THERMOCOUPLE_1
+#if FEATURE_THERMOCOUPLE_2
+    if ( inst->tc2        ) { sum += TCGetTemperature( inst->tc2 );        count++; }
+#endif // FEATURE_THERMOCOUPLE_2
+#if FEATURE_THERMISTOR_OVEN
+    if ( inst->thermistor ) { sum += TMGetTemperature( inst->thermistor ); count++; }
+#endif // FEATURE_THERMISTOR_OVEN
     Temperature current = count > 0 ? (Temperature)( sum / count ) : 0;
 
     taskENTER_CRITICAL();
@@ -153,9 +184,15 @@ void OCStop( OvenControllerRef controller ) {
     taskEXIT_CRITICAL();
 
     // De-energise all heaters regardless of which the mandate permitted
+#if FEATURE_HEATER_TOP
     if ( inst->triacTop    ) TriacOff( inst->triacTop    );
+#endif // FEATURE_HEATER_TOP
+#if FEATURE_HEATER_REAR
     if ( inst->triacRear   ) TriacOff( inst->triacRear   );
+#endif // FEATURE_HEATER_REAR
+#if FEATURE_HEATER_BOTTOM
     if ( inst->triacBottom ) TriacOff( inst->triacBottom );
+#endif // FEATURE_HEATER_BOTTOM
 
     osEventFlagsClear( inst->statusHandle,
                        BIT( FlagOvenControllerStatusActive  ) |
@@ -217,7 +254,7 @@ void OCProcess( void ) {
             inst->rampTarget     += ( step < remaining ) ? step : remaining;
         }
 
-        Temperature currentTemp = SampleTemperature( inst, pb );
+        Temperature currentTemp = SampleTemperature( inst );
 
         // Over-temperature — de-energise immediately and latch fault
         if ( currentTemp >= kOverTempThreshold ) {
@@ -279,18 +316,16 @@ void OCProcess( void ) {
 // Internal
 // ============================================================================
 
-/// @brief Average temperature from all enabled, non-faulted sources in the mandate.
+/// @brief Average temperature from all fitted, non-faulted sensor sources.
 ///
-/// Reads each source that is both permitted by the mandate (pb->tc1, pb->tc2,
-/// pb->thermistor) and reports no hardware fault. Returns the integer average of
-/// all valid readings. If no source passes both checks, sets
-/// FlagOvenControllerStatusFault on @p inst and raises FlagOvenControllerFault in
-/// FaultFlagsHandle, then returns 0.
+/// Reads each source enabled by Features.h that reports no hardware fault.
+/// Returns the integer average of all valid readings. If no source is available,
+/// sets FlagOvenControllerStatusFault on @p inst and raises FlagOvenControllerFault
+/// in FaultFlagsHandle, then returns 0.
 ///
 /// @param[in]  inst  Controller instance whose device handles are used.
-/// @param[in]  pb    Parameter block providing mandate resource bits.
 /// @return Averaged temperature in milli-degrees C, or 0 if all sources faulted.
-static Temperature SampleTemperature( OvenControllerInstancePtr inst, OvenControlPBPtr pb ) {
+static Temperature SampleTemperature( OvenControllerInstancePtr inst ) {
     static const uint32_t kTCFaultMask = BIT( FlagTCStatusOpenCircuit  ) |
                                           BIT( FlagTCStatusShortToGND   ) |
                                           BIT( FlagTCStatusShortToVCC   ) |
@@ -302,18 +337,24 @@ static Temperature SampleTemperature( OvenControllerInstancePtr inst, OvenContro
     int32_t sum   = 0;
     uint8_t count = 0;
 
-    if ( pb->tc1 && inst->tc1 && !( TCGetStatus( inst->tc1 ) & kTCFaultMask ) ) {
+#if FEATURE_THERMOCOUPLE_1
+    if ( inst->tc1 && !( TCGetStatus( inst->tc1 ) & kTCFaultMask ) ) {
         sum += TCGetTemperature( inst->tc1 );
         count++;
     }
-    if ( pb->tc2 && inst->tc2 && !( TCGetStatus( inst->tc2 ) & kTCFaultMask ) ) {
+#endif // FEATURE_THERMOCOUPLE_1
+#if FEATURE_THERMOCOUPLE_2
+    if ( inst->tc2 && !( TCGetStatus( inst->tc2 ) & kTCFaultMask ) ) {
         sum += TCGetTemperature( inst->tc2 );
         count++;
     }
-    if ( pb->thermistor && inst->thermistor && !( TMGetStatus( inst->thermistor ) & kTMFaultMask ) ) {
+#endif // FEATURE_THERMOCOUPLE_2
+#if FEATURE_THERMISTOR_OVEN
+    if ( inst->thermistor && !( TMGetStatus( inst->thermistor ) & kTMFaultMask ) ) {
         sum += TMGetTemperature( inst->thermistor );
         count++;
     }
+#endif // FEATURE_THERMISTOR_OVEN
 
     if ( count == 0 ) {
         osEventFlagsSet( inst->statusHandle, BIT( FlagOvenControllerStatusFault ) );
@@ -355,9 +396,15 @@ static void DriveHeaters( OvenControllerInstancePtr inst, OvenControlPBPtr pb, P
         burst.burstWindow  = kBurstWindow;
     }
 
+#if FEATURE_HEATER_TOP
     if ( pb->heaterTop    && inst->triacTop    ) { if ( drive ) drive( inst->triacTop    ); else TriacRun( inst->triacTop,    burst ); }
+#endif // FEATURE_HEATER_TOP
+#if FEATURE_HEATER_REAR
     if ( pb->heaterRear   && inst->triacRear   ) { if ( drive ) drive( inst->triacRear   ); else TriacRun( inst->triacRear,   burst ); }
+#endif // FEATURE_HEATER_REAR
+#if FEATURE_HEATER_BOTTOM
     if ( pb->heaterBottom && inst->triacBottom ) { if ( drive ) drive( inst->triacBottom ); else TriacRun( inst->triacBottom, burst ); }
+#endif // FEATURE_HEATER_BOTTOM
 }
 
 /// @brief Return true if any enabled heater TRIAC has lost AC sync or reported a config error.
@@ -376,8 +423,14 @@ static bool HeaterFaulted( OvenControllerInstancePtr inst, OvenControlPBPtr pb )
     static const uint32_t kFaultMask = BIT( FlagTriacStatusZCDLost    ) |
                                         BIT( FlagTriacStatusConfigError );
 
+#if FEATURE_HEATER_TOP
     if ( pb->heaterTop    && inst->triacTop    && ( TriacGetStatus( inst->triacTop    ) & kFaultMask ) ) return true;
+#endif // FEATURE_HEATER_TOP
+#if FEATURE_HEATER_REAR
     if ( pb->heaterRear   && inst->triacRear   && ( TriacGetStatus( inst->triacRear   ) & kFaultMask ) ) return true;
+#endif // FEATURE_HEATER_REAR
+#if FEATURE_HEATER_BOTTOM
     if ( pb->heaterBottom && inst->triacBottom && ( TriacGetStatus( inst->triacBottom ) & kFaultMask ) ) return true;
+#endif // FEATURE_HEATER_BOTTOM
     return false;
 }

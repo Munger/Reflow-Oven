@@ -14,6 +14,10 @@
 #ifndef THERMISTORI2C_H
 #define THERMISTORI2C_H
 
+#include "Features.h"
+
+#if FEATURE_THERMISTOR_HEATSINK
+
 #include "Types.h"
 #include "SystemStatusFlags.h"
 #include "I2CManager.h"
@@ -77,5 +81,7 @@ uint32_t TMI2CGetStatus( ThermistorI2CRef thermistor );
 /// @brief Drive the I2C state machine, evaluate fault thresholds, and update status flags.
 /// @warning All I2C hardware access occurs here. Do not call from ISR context.
 void TMI2CProcess( void );
+
+#endif // FEATURE_THERMISTOR_HEATSINK
 
 #endif // THERMISTORI2C_H

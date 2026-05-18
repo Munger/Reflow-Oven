@@ -2,9 +2,10 @@
 ///
 /// @brief MAX31856 dual thermocouple driver — SPI polling implementation.
 ///
-/// Manages two MAX31856 channels. Each instance has its own private osEventFlagsId_t
-/// stored in the Thermocouple struct (tc->statusHandle). TCInitModule() creates these
-/// via osEventFlagsNew() — they are not exposed as extern handles.
+/// Manages up to two MAX31856 channels. Each instance has its own private
+/// osEventFlagsId_t stored in the Thermocouple struct (tc->statusHandle).
+/// TCInitModule() creates these via osEventFlagsNew() — they are not exposed
+/// as extern handles.
 ///
 /// Key design invariants:
 ///   - All SPI access (register write/read) occurs exclusively in TCProcess().
@@ -21,10 +22,13 @@
 
 #include "adc.h"
 #include "main.h"
-#include "SPIManager.h"
+#include "SPIManager.h"   // opened internally by TCOpen()
 #include "TaskUtils.h"
 #include "Thermistor.h"
+#include "Features.h"
 #include "Thermocouple.h"
+
+#if FEATURE_THERMOCOUPLES
 
 /// @brief MAX31856 register address map.
 typedef enum {
@@ -54,49 +58,88 @@ typedef enum {
 
 /// @brief Internal per-channel thermocouple state.
 typedef struct Thermocouple {
-    ThermocoupleID     id;            ///< Channel identifier
-    SPIRef             spi;           ///< SPI bus handle acquired at TCOpen()
-    osEventFlagsId_t   statusHandle;  ///< Private event flag group for this instance
-    GPIO_TypeDef*      csPort;        ///< SPI chip-select GPIO port
-    uint16_t           csPin;         ///< SPI chip-select GPIO pin
-    uint16_t           drdyPin;       ///< Data-ready GPIO pin (matched in DRDY ISR)
-    uint16_t           faultPin;      ///< Fault GPIO pin (matched in FAULT ISR)
-    ThermistorID       externalCjtId; ///< NTC thermistor ID used for CJT injection
-    ThermistorRef      externalCjt;   ///< Resolved handle to the CJT thermistor
-    Temperature        lastTemp;      ///< Most recently decoded thermocouple temperature
-    uint8_t            rxBuf[ 4 ];    ///< Scratch buffer for SPI register reads
+    ThermocoupleID     id;             ///< Channel identifier
+    SPIRef             spi;            ///< SPI bus handle acquired at TCOpen()
+    osEventFlagsId_t   statusHandle;   ///< Private event flag group for this instance
+    GPIO_TypeDef*      csPort;         ///< SPI chip-select GPIO port
+    uint16_t           csPin;          ///< SPI chip-select GPIO pin
+    uint16_t           drdyPin;        ///< Data-ready GPIO pin (matched in DRDY ISR)
+    uint16_t           faultPin;       ///< Fault GPIO pin (matched in FAULT ISR)
+    uint8_t            externalCjtId;  ///< NTC thermistor ID used for CJT injection, or kThermistorNone
+    ThermistorRef      externalCjt;    ///< Resolved handle to the CJT thermistor
+    uint32_t           globalFaultBit; ///< BIT(FlagXxx) to set/clear in FaultFlagsHandle
+    uint32_t           globalReadyBit; ///< BIT(FlagXxx) to set in DeviceStatusFlagsHandle at open
+    Temperature        lastTemp;       ///< Most recently decoded thermocouple temperature
+    uint8_t            rxBuf[ 4 ];     ///< Scratch buffer for SPI register reads
 } Thermocouple, *ThermocouplePtr;
 
-/// @brief Two thermocouple instances, indexed by ThermocoupleID.
-static Thermocouple instances[ 2 ];
+// ============================================================================
+// CJT thermistor mapping — indexed by physical channel (0 = TC1, 1 = TC2)
+// ============================================================================
+//
+// Prefer each channel's own CJT thermistor. If it is disabled, fall back to the
+// peer (they sit next to each other, so readings are nearly identical). If neither
+// external CJT is available, store kThermistorNone — TCOpen() leaves Cr0CjDisable
+// clear and the MAX31856 uses its own internal cold-junction measurement.
+
+static const uint8_t kCjtMap[ 2 ] = {
+#if   FEATURE_THERMISTOR_CJT_1
+    ThermistorCJT1,   // TC1: own CJT
+#elif FEATURE_THERMISTOR_CJT_2
+    ThermistorCJT2,   // TC1: peer fallback
+#else
+    kThermistorNone,  // TC1: chip-internal
+#endif
+#if   FEATURE_THERMISTOR_CJT_2
+    ThermistorCJT2,   // TC2: own CJT
+#elif FEATURE_THERMISTOR_CJT_1
+    ThermistorCJT1,   // TC2: peer fallback
+#else
+    kThermistorNone,  // TC2: chip-internal
+#endif
+};
+
+/// @brief Thermocouple instance array — one slot per enabled channel, no holes.
+///
+/// Compile-time fields are set here. The statusHandle is assigned at runtime
+/// in TCInitModule() because osEventFlagsNew() cannot be called at static init.
+static Thermocouple instances[ ThermocoupleCount ] = {
+#if FEATURE_THERMOCOUPLE_1
+    [ Thermocouple1 ] = { .id             = Thermocouple1,
+                          .csPort         = THERM1_CS_GPIO_Port,
+                          .csPin          = THERM1_CS_Pin,
+                          .drdyPin        = THERM1_DRDY_Pin,
+                          .faultPin       = THERM1_FAULT_Pin,
+                          .externalCjtId  = kCjtMap[ 0 ],
+                          .globalFaultBit = BIT( FlagThermocouple1Fault ),
+                          .globalReadyBit = BIT( FlagThermocouple1Ready ) },
+#endif // FEATURE_THERMOCOUPLE_1
+#if FEATURE_THERMOCOUPLE_2
+    [ Thermocouple2 ] = { .id             = Thermocouple2,
+                          .csPort         = THERM2_CS_GPIO_Port,
+                          .csPin          = THERM2_CS_Pin,
+                          .drdyPin        = THERM2_DRDY_Pin,
+                          .faultPin       = THERM2_FAULT_Pin,
+                          .externalCjtId  = kCjtMap[ 1 ],
+                          .globalFaultBit = BIT( FlagThermocouple2Fault ),
+                          .globalReadyBit = BIT( FlagThermocouple2Ready ) },
+#endif // FEATURE_THERMOCOUPLE_2
+};
 
 static void TCWriteReg( ThermocoupleRef tc, MaxRegister reg, uint8_t val );
 static void TCReadRegs( ThermocoupleRef tc, MaxRegister reg, uint8_t* buffer, uint8_t len );
 
-/// @brief Allocate per-instance resources and assign static GPIO/pin mappings.
+/// @brief Create per-channel RTOS flag groups. Does not access SPI hardware.
 ///
-/// Creates per-instance private event flag groups (osEventFlagsNew) and records
-/// the GPIO/pin configuration from CubeMX-generated defines. Does NOT access SPI
-/// hardware — that happens in TCOpen() once a bus reference is available. Safe to
-/// call before SPIInitModule() runs.
+/// Static instance data (GPIO pins, fault bits) is set at compile time.
+/// Safe to call before SPIInitModule() runs.
 void TCInitModule( void ) {
-    memset( instances, 0, sizeof( instances ) );
-
-    instances[ Thermocouple1 ].id            = Thermocouple1;
-    instances[ Thermocouple1 ].statusHandle  = osEventFlagsNew( NULL );
-    instances[ Thermocouple1 ].csPort        = THERM1_CS_GPIO_Port;
-    instances[ Thermocouple1 ].csPin         = THERM1_CS_Pin;
-    instances[ Thermocouple1 ].drdyPin       = THERM1_DRDY_Pin;
-    instances[ Thermocouple1 ].faultPin      = THERM1_FAULT_Pin;
-    instances[ Thermocouple1 ].externalCjtId = ThermistorCJT1;
-
-    instances[ Thermocouple2 ].id            = Thermocouple2;
-    instances[ Thermocouple2 ].statusHandle  = osEventFlagsNew( NULL );
-    instances[ Thermocouple2 ].csPort        = THERM2_CS_GPIO_Port;
-    instances[ Thermocouple2 ].csPin         = THERM2_CS_Pin;
-    instances[ Thermocouple2 ].drdyPin       = THERM2_DRDY_Pin;
-    instances[ Thermocouple2 ].faultPin      = THERM2_FAULT_Pin;
-    instances[ Thermocouple2 ].externalCjtId = ThermistorCJT2;
+#if FEATURE_THERMOCOUPLE_1
+    instances[ Thermocouple1 ].statusHandle = osEventFlagsNew( NULL );
+#endif // FEATURE_THERMOCOUPLE_1
+#if FEATURE_THERMOCOUPLE_2
+    instances[ Thermocouple2 ].statusHandle = osEventFlagsNew( NULL );
+#endif // FEATURE_THERMOCOUPLE_2
 }
 
 /// @brief Open a handle to a thermocouple instance and configure the MAX31856 hardware.
@@ -104,19 +147,23 @@ void TCInitModule( void ) {
 /// On first call for a given ID: stores @p spi, writes CR0/CR1 to the MAX31856,
 /// resolves the CJT thermistor reference, and signals DeviceStatusFlagsHandle.
 /// Subsequent calls with the same ID return the existing instance without re-configuring.
-ThermocoupleRef TCOpen( ThermocoupleID thermocoupleID, SPIRef spi ) {
+ThermocoupleRef TCOpen( ThermocoupleID thermocoupleID ) {
     ThermocoupleRef tc = &instances[ (uint8_t)thermocoupleID ];
 
     if ( tc->spi == NULL ) {
-        tc->spi = spi;
+        tc->spi = SPIOpen( SPIBus1 );
+        uint8_t cr0 = (uint8_t)Cr0ConvModeAuto | (uint8_t)Cr0OcFault100Ms;
+        if ( tc->externalCjtId != kThermistorNone ) cr0 |= (uint8_t)Cr0CjDisable;
         TCWriteReg( tc, RegCr1, Cr1TypeK );
-        TCWriteReg( tc, RegCr0, (uint8_t)Cr0ConvModeAuto | (uint8_t)Cr0OcFault100Ms | (uint8_t)Cr0CjDisable );
-        osEventFlagsSet( DeviceStatusFlagsHandle, ( tc->id == Thermocouple1 ) ?
-                         BIT( FlagThermocouple1Ready ) : BIT( FlagThermocouple2Ready ) );
+        TCWriteReg( tc, RegCr0, cr0 );
+        osEventFlagsSet( DeviceStatusFlagsHandle, tc->globalReadyBit );
     }
 
     if ( tc->externalCjt == NULL ) {
         tc->externalCjt = TMOpen( tc->externalCjtId );
+        if ( tc->externalCjt != NULL ) {
+            osEventFlagsSet( tc->statusHandle, BIT( FlagTCStatusExternalCJT ) );
+        }
     }
 
     return tc;
@@ -154,7 +201,7 @@ uint32_t TCGetStatus( ThermocoupleRef tc ) {
     return osEventFlagsGet( tc->statusHandle ) & OS_USER_FLAGS_MASK;
 }
 
-/// @brief Service both thermocouple instances: inject CJT, decode temperature, read fault register.
+/// @brief Service all thermocouple instances: inject CJT, decode temperature, read fault register.
 ///
 /// For each instance, in order:
 ///   1. If pendingSample: writes the current NTC CJT temperature to the MAX31856 CJT registers.
@@ -164,9 +211,9 @@ uint32_t TCGetStatus( ThermocoupleRef tc ) {
 ///
 /// @warning All SPI hardware access occurs here. Do not call from ISR context.
 void TCProcess( void ) {
-    for ( uint8_t i = 0; i < 2; i++ ) {
+    for ( uint8_t i = 0; i < ThermocoupleCount; i++ ) {
         ThermocouplePtr tc = &instances[ i ];
-        uint32_t faultBit  = ( tc->id == Thermocouple1 ) ? BIT( FlagThermocouple1Fault ) : BIT( FlagThermocouple2Fault );
+        if ( tc->statusHandle == NULL ) continue;
 
         // Inject cold-junction temperature if a sample was requested.
         if ( osEventFlagsGet( tc->statusHandle ) & BIT( FlagTCStatusSamplePending ) ) {
@@ -209,9 +256,9 @@ void TCProcess( void ) {
 
         // Propagate hardware fault to global flags.
         if ( osEventFlagsGet( tc->statusHandle ) & BIT( FlagTCStatusHardwareFault ) ) {
-            osEventFlagsSet( FaultFlagsHandle, faultBit );
+            osEventFlagsSet( FaultFlagsHandle, tc->globalFaultBit );
         } else {
-            osEventFlagsClear( FaultFlagsHandle, faultBit );
+            osEventFlagsClear( FaultFlagsHandle, tc->globalFaultBit );
         }
     }
 }
@@ -220,7 +267,7 @@ void TCProcess( void ) {
 ///
 /// @warning ISR context. Sets event flags only — no SPI access, no FreeRTOS blocking API.
 void TCHandleDRDYInterrupt( uint16_t GPIO_Pin ) {
-    for ( uint8_t i = 0; i < 2; i++ ) {
+    for ( uint8_t i = 0; i < ThermocoupleCount; i++ ) {
         if ( GPIO_Pin == instances[ i ].drdyPin ) {
             osEventFlagsSet( instances[ i ].statusHandle, BIT( FlagTCStatusDataReady ) );
         }
@@ -233,7 +280,7 @@ void TCHandleDRDYInterrupt( uint16_t GPIO_Pin ) {
 /// reads the status register on the next tick.
 /// @warning ISR context. osEventFlagsSet() only — no SPI access.
 void TCHandleFaultInterrupt( uint16_t GPIO_Pin ) {
-    for ( uint8_t i = 0; i < 2; i++ ) {
+    for ( uint8_t i = 0; i < ThermocoupleCount; i++ ) {
         if ( GPIO_Pin == instances[ i ].faultPin ) {
             osEventFlagsSet( instances[ i ].statusHandle, BIT( FlagTCStatusFaultPending ) );
         }
@@ -271,3 +318,5 @@ static void TCReadRegs( ThermocoupleRef tc, MaxRegister reg, uint8_t* buffer, ui
         osEventFlagsSet( tc->statusHandle, BIT( FlagTCStatusHardwareFault ) );
     }
 }
+
+#endif // FEATURE_THERMOCOUPLES

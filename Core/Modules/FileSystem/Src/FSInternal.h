@@ -12,6 +12,10 @@
 #ifndef FSINTERNAL_H
 #define FSINTERNAL_H
 
+#include "Features.h"
+
+#if FEATURE_FILE_SYSTEM
+
 #include "lfs.h"
 #include "FSTypes.h"
 #include "Volume.h"
@@ -50,5 +54,7 @@ void VolDecrementOpenFiles( VolRef vol );
 /// @param relPath Set to the volume-relative path on success.
 /// @return Mounted volume handle, or NULL if no mounted volume matches.
 VolRef VolResolve( const char* absPath, const char** relPath );
+
+#endif // FEATURE_FILE_SYSTEM
 
 #endif // FSINTERNAL_H

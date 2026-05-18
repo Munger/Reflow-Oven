@@ -22,6 +22,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_FILE_SYSTEM
+
 #include <string.h>
 #include "FSFile.h"
 #include "FSInternal.h"
@@ -344,3 +348,5 @@ FSResult FileWriteAsync( FileRef file, const void* buf, size_t size,
 FSResult FileGetLastError( FileRef file ) {
     return file ? file->lastError : FSResultInvalid;
 }
+
+#endif // FEATURE_FILE_SYSTEM

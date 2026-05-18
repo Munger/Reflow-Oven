@@ -13,6 +13,10 @@
 #ifndef ROTARYENCODER_H
 #define ROTARYENCODER_H
 
+#include "Features.h"
+
+#if FEATURE_ROTARY_ENCODER
+
 #include <stdbool.h>
 
 #include "Types.h"
@@ -77,5 +81,7 @@ uint32_t         REGetStatus( void );
 /// @brief Drive the I2C state machine, update velocity, and update status flags.
 /// @warning All I2C hardware access occurs here. Do not call from ISR context.
 void REProcess( void );
+
+#endif // FEATURE_ROTARY_ENCODER
 
 #endif // ROTARYENCODER_H

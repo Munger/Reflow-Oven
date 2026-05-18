@@ -25,6 +25,8 @@
 
 /* USER CODE BEGIN INCLUDE */
 
+#include "Firmware.h"
+
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -71,6 +73,31 @@
 #define USBD_INTERFACE_STRING     "CDC Interface"
 
 /* USER CODE BEGIN PRIVATE_DEFINES */
+
+#ifdef FIRMWARE_USB_VID
+#undef  USBD_VID
+#define USBD_VID                  FIRMWARE_USB_VID
+#endif
+
+#ifdef FIRMWARE_USB_LANGID
+#undef  USBD_LANGID_STRING
+#define USBD_LANGID_STRING        FIRMWARE_USB_LANGID
+#endif
+
+#ifdef FIRMWARE_MANUFACTURER
+#undef  USBD_MANUFACTURER_STRING
+#define USBD_MANUFACTURER_STRING  FIRMWARE_MANUFACTURER
+#endif
+
+#ifdef FIRMWARE_USB_PID
+#undef  USBD_PID
+#define USBD_PID                  FIRMWARE_USB_PID
+#endif
+
+#ifdef FIRMWARE_PRODUCT
+#undef  USBD_PRODUCT_STRING
+#define USBD_PRODUCT_STRING       FIRMWARE_PRODUCT
+#endif
 
 /* USER CODE END PRIVATE_DEFINES */
 

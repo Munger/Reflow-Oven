@@ -14,6 +14,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_USB_PD
+
 #include "FreeRTOS.h"
 #include "task.h"
 #include "cmsis_os.h"
@@ -252,3 +256,5 @@ Voltage USBPDGetLiveVoltage( USBPDRef pd ) {
 Current USBPDGetLiveCurrent( USBPDRef pd ) {
     return pd ? pd->cachedCurrent : 0;
 }
+
+#endif // FEATURE_USB_PD

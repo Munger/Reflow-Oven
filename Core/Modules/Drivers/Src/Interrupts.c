@@ -13,14 +13,15 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
 #include "main.h"
 #include "Platform.h"
 #include "SystemStatusFlags.h"
 #include "event_groups.h"
 #include "PowerManager.h"
+#include "Triac.h"
 #include "Thermocouple.h"
 #include "USBPowerDelivery.h"
-#include "Triac.h"
 
 /// @brief Function pointer type for GPIO edge interrupt handlers.
 /// @param[in] GPIO_Pin The HAL pin bitmask that triggered the interrupt.
@@ -47,12 +48,14 @@ static struct {
     { ZCD_Pin,          RisingEdge,  ZCDHandler                },  ///< TRIAC zero-cross sequencer
     { ZCD_Pin,          RisingEdge,  PMHandleZCDInterrupt      },  ///< Power manager AC-live watchdog
     { ESTOP_Pin,        RisingEdge,  PMHandleEStopInterrupt    },  ///< Emergency stop
+#if FEATURE_THERMOCOUPLES
     { THERM1_DRDY_Pin,  RisingEdge,  TCHandleDRDYInterrupt     },  ///< TC1 data-ready
-    { THERM2_DRDY_Pin,  RisingEdge,  TCHandleDRDYInterrupt     },  ///< TC2 data-ready
     { THERM1_FAULT_Pin, RisingEdge,  TCHandleFaultInterrupt    },  ///< TC1 fault assertion
-    { THERM2_FAULT_Pin, RisingEdge,  TCHandleFaultInterrupt    },  ///< TC2 fault assertion
+#endif // FEATURE_THERMOCOUPLES
+#if FEATURE_USB_PD
     { FLGN_Pin,         FallingEdge, USBPDHandleFLGNInterrupt  },  ///< TCPP03 FLAG_N (active low)
-    { PD_SRC_INT_Pin,   FallingEdge, USBPDHandleSourceInterrupt}   ///< STPD01 source interrupt
+    { PD_SRC_INT_Pin,   FallingEdge, USBPDHandleSourceInterrupt},  ///< STPD01 source interrupt
+#endif // FEATURE_USB_PD
 };
 
 /// @brief HAL rising-edge EXTI callback — dispatches to registered rising-edge handlers.

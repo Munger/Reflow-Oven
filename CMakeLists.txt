@@ -42,9 +42,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/Drivers/Src/Interrupts.c
     Core/Modules/Drivers/Src/I2CManager.c
     Core/Modules/Drivers/Src/SPIManager.c
-    Core/Modules/Drivers/Src/Buzzer.c
     Core/Modules/Drivers/Src/ACFan.c
     Core/Modules/Drivers/Src/ACLight.c
+    Core/Modules/Drivers/Src/Buzzer.c
     Core/Modules/Drivers/Src/DCFan.c
     Core/Modules/Drivers/Src/Flash.c
     Core/Modules/Drivers/Src/MCU.c
@@ -60,17 +60,24 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/Tasks/Src/DeviceTask.c
     Core/Modules/Tasks/Src/LoggingTask.c
     Core/Modules/Tasks/Src/ManagerTask.c
+    Core/Modules/Tasks/Src/ReflowTask.c
     Core/Modules/Tasks/Src/USBPDTask.c
     Core/Modules/Tasks/Src/TaskUtils.c
+ 
+    # Calibration
     Core/Modules/Tuning/Src/ACFanTuning.c
+
+    # Reflow
+    Core/Modules/Reflow/Src/Reflow.c
+    Core/Modules/Reflow/Src/ReflowProfile.c
 
     # FileSystem
     Core/Modules/FileSystem/Src/BlockDevice.c
+    Core/Modules/FileSystem/Src/FlashBlockDevice.c
     Core/Modules/FileSystem/Src/Partition.c
     Core/Modules/FileSystem/Src/LFSAdapter.c
     Core/Modules/FileSystem/Src/Volume.c
     Core/Modules/FileSystem/Src/FSFile.c
-    Core/Modules/FileSystem/Src/FlashBlockDevice.c
 
     # Add third-party source files directly to your target
     Middlewares/Third_Party/littlefs/lfs.c
@@ -84,6 +91,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/Tasks/Inc
     Core/Modules/Drivers/Inc
     Core/Modules/Tuning/Inc
+    Core/Modules/Reflow/Inc
     Core/Modules/FileSystem/Inc
     Core/Modules/FileSystem/Src
     Middlewares/Third_Party/littlefs

@@ -21,6 +21,10 @@
 #ifndef PARTITION_H
 #define PARTITION_H
 
+#include "Features.h"
+
+#if FEATURE_FILE_SYSTEM
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "FSTypes.h"
@@ -32,6 +36,10 @@
 
 /// @brief Maximum number of partition entries in the table.
 enum { kPartMaxCount = 8 };
+
+/// @brief Well-known partition names.
+#define PART_NAME_SYSTEM    "System"   ///< Read-only system partition — firmware assets and config.
+#define PART_NAME_USER      "User"     ///< Read-write user partition — profiles, logs, calibration.
 
 /// @brief Maximum partition name length including the NUL terminator.
 enum { kPartNameLen = 16 };
@@ -132,5 +140,7 @@ BDRef PartGetDevice( PartRef part );
 ///
 /// @return FSResultOk on success, or FSResultIO on erase/program failure.
 FSResult PartCommit( void );
+
+#endif // FEATURE_FILE_SYSTEM
 
 #endif // PARTITION_H

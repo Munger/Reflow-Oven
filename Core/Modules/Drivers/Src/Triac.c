@@ -41,11 +41,21 @@ typedef struct TriacDevice {
 /// Using designated initialisers here ensures that hardware constants (pin, port) are
 /// bound to the correct TriacID regardless of array element order.
 static TriacDevice devices[ TriacCount ] = {
+#if FEATURE_HEATER_TOP
     [ TriacHeaterTop ]    = { .id = TriacHeaterTop,    .pin = HTR_TOP_EN_N_Pin,  .port = HTR_TOP_EN_N_GPIO_Port  },
+#endif // FEATURE_HEATER_TOP
+#if FEATURE_HEATER_REAR
     [ TriacHeaterRear ]   = { .id = TriacHeaterRear,   .pin = HTR_REAR_EN_N_Pin, .port = HTR_REAR_EN_N_GPIO_Port },
+#endif // FEATURE_HEATER_REAR
+#if FEATURE_HEATER_BOTTOM
     [ TriacHeaterBottom ] = { .id = TriacHeaterBottom, .pin = HTR_BOT_EN_N_Pin,  .port = HTR_BOT_EN_N_GPIO_Port  },
+#endif // FEATURE_HEATER_BOTTOM
+#if FEATURE_OVEN_FAN
     [ TriacOvenFan ]      = { .id = TriacOvenFan,      .pin = OVEN_FAN_EN_N_Pin, .port = OVEN_FAN_EN_N_GPIO_Port },
-    [ TriacLight ]        = { .id = TriacLight,        .pin = LIGHT_EN_N_Pin,    .port = LIGHT_EN_N_GPIO_Port    }
+#endif // FEATURE_OVEN_FAN
+#if FEATURE_OVEN_LIGHT
+    [ TriacLight ]        = { .id = TriacLight,        .pin = LIGHT_EN_N_Pin,    .port = LIGHT_EN_N_GPIO_Port    },
+#endif // FEATURE_OVEN_LIGHT
 };
 
 /// @brief Sorted list of device indices awaiting phase-angle pulses in the current half-cycle.
