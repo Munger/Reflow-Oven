@@ -35,7 +35,9 @@ __pycache__/
 
 # --- Doxygen generated output ---
 Docs/html/
+Docs/xml/
 Docs/latex/
+Docs/API.md
 
 # --- Hardware design exports ---
 Docs/*.csv

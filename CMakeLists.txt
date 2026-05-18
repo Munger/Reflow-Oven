@@ -99,11 +99,15 @@ list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)
 
 # 7. DOCUMENTATION
 find_package(Doxygen QUIET)
-if(DOXYGEN_FOUND)
+find_package(Python3 QUIET COMPONENTS Interpreter)
+if(DOXYGEN_FOUND AND Python3_FOUND)
     add_custom_target(docs ALL
         COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Tools/gen_api_ref.py
+                ${CMAKE_CURRENT_SOURCE_DIR}/Docs/xml
+                ${CMAKE_CURRENT_SOURCE_DIR}/Docs/API.md
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Generating Doxygen documentation"
+        COMMENT "Generating Doxygen HTML and Markdown API reference"
         VERBATIM
     )
 endif()

@@ -24,7 +24,9 @@ jobs:
         run: sudo apt-get install -y --no-install-recommends doxygen graphviz
 
       - name: Generate docs
-        run: doxygen Doxyfile
+        run: |
+          doxygen Doxyfile
+          python3 Tools/gen_api_ref.py Docs/xml Docs/API.md
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
