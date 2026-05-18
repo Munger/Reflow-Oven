@@ -120,11 +120,14 @@ def process_file(xml_dir, refid, filename):
     enums = []
     for sdef in cdef.findall("sectiondef[@kind='enum']"):
         for mdef in sdef.findall("memberdef[@kind='enum']"):
+            ename = elem_text(mdef.find("name"))
+            if ename.startswith("@"):
+                continue
             values = [
                 (elem_text(ev.find("name")), brief(ev))
                 for ev in mdef.findall("enumvalue")
             ]
-            enums.append((elem_text(mdef.find("name")), brief(mdef), values))
+            enums.append((ename, brief(mdef), values))
 
     # Structs via innerclass refs
     structs = []
