@@ -229,8 +229,7 @@ def main():
     sections.sort(key=lambda x: x[0])
 
     with open(output, "w") as f:
-        f.write("# API Reference\n\n")
-        f.write("_Auto-generated from source. Run `ninja docs` to update._\n\n")
+        f.write("# Function Reference\n\n")
         f.write("---\n\n")
         for _, md in sections:
             f.write(md)

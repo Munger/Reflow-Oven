@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -27,6 +27,14 @@ jobs:
         run: |
           doxygen Doxyfile
           python3 Tools/gen_api_ref.py Docs/xml Docs/ModuleRef.md
+
+      - name: Commit ModuleRef.md
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Docs/ModuleRef.md
+          git diff --cached --quiet || git commit -m "Docs: regenerate ModuleRef.md [skip ci]"
+          git push
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

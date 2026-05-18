@@ -37,7 +37,6 @@ __pycache__/
 Docs/html/
 Docs/xml/
 Docs/latex/
-Docs/ModuleRef.md
 
 # --- Hardware design exports ---
 Docs/*.csv
