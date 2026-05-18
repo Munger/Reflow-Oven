@@ -118,6 +118,14 @@ Apply any pending speed command and update status flags from the encoder.
 
 ### Types
 
+#### ``
+
+Number of calibrated speed steps in the profile, excluding slot 0 (OFF).
+
+| Value | Description |
+|-------|-------------|
+| `kAcFanNumSteps` |  |
+
 #### `ACFanDriveParams`
 
 Internal TRIAC drive parameter set.
@@ -1157,6 +1165,19 @@ Releases the completed buffer. If a next link is available in the chain, starts 
 
 ### Types
 
+#### ``
+
+API pool and buffer sizing constants.
+
+| Value | Description |
+|-------|-------------|
+| `API_PAYLOAD_SIZE` | Maximum bytes in a single Payload data chunk. |
+| `API_PAYLOAD_COUNT` | Total Payload objects in the static pool. |
+| `APIPB_COUNT` | Total APIPB protocol buffers in the static pool. |
+| `API_BUFFER_SIZE` | Maximum bytes in a single APIBuffer transmit chunk. |
+| `API_BUFFER_COUNT` | Total APIBuffer objects in the static pool. |
+| `API_REQUEST_MAX_LEN` | Maximum bytes captured into APIPB.rawRequest. |
+
 #### `APIStatus`
 
 HTTP-like response status codes returned by handler functions.
@@ -1692,6 +1713,16 @@ Each Process() function performs all hardware I/O, updates cached state, and set
 
 *File and directory operations for the FileSystem subsystem.*
 
+### Types
+
+#### ``
+
+Maximum number of simultaneously open file handles (shared pool).
+
+| Value | Description |
+|-------|-------------|
+| `kFileMaxOpen` |  |
+
 ### Functions
 
 #### `FileOpen`
@@ -1997,6 +2028,24 @@ Result codes returned by all FileSystem operations.
 | `FSResultPermission` | Caller lacks the required permission. |
 | `FSResultNotMounted` | Volume is not currently mounted. |
 | `FSResultNotReady` | Block device has not been initialised. |
+
+#### ``
+
+Standard permission bit constants (octal values).
+
+| Value | Description |
+|-------|-------------|
+| `FSModeOwnerRead` | Owner read. |
+| `FSModeOwnerWrite` | Owner write. |
+| `FSModeOwnerExec` | Owner execute / directory traverse. |
+| `FSModeGroupRead` | Group read. |
+| `FSModeGroupWrite` | Group write. |
+| `FSModeGroupExec` | Group execute / traverse. |
+| `FSModeOtherRead` | Others read. |
+| `FSModeOtherWrite` | Others write. |
+| `FSModeOtherExec` | Others execute / traverse. |
+| `FSModeDefault` | Owner rw, group r, others r — default for files. |
+| `FSModeDirDefault` | Owner rwx, group rx, others rx — default for directories. |
 
 #### `FSOpenFlags`
 
@@ -2867,6 +2916,30 @@ Write currentTemp and state back into the PB.
 *Partition table management for the FileSystem subsystem.*
 
 ### Types
+
+#### ``
+
+Maximum number of partition entries in the table.
+
+| Value | Description |
+|-------|-------------|
+| `kPartMaxCount` |  |
+
+#### ``
+
+Maximum partition name length including the NUL terminator.
+
+| Value | Description |
+|-------|-------------|
+| `kPartNameLen` |  |
+
+#### ``
+
+Partition table format version written to on-chip storage.
+
+| Value | Description |
+|-------|-------------|
+| `kPartTableVersion` |  |
 
 #### `FSPartType`
 
@@ -4301,6 +4374,14 @@ STPD01 source-interrupt falling-edge ISR handler — flags a fault for deferred 
 *Volume (mounted filesystem instance) management.*
 
 ### Types
+
+#### ``
+
+Maximum number of simultaneously mounted volumes.
+
+| Value | Description |
+|-------|-------------|
+| `kVolMaxCount` |  |
 
 #### `FSMountFlags`
 
