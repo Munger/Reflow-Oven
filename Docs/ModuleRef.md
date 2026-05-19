@@ -1032,7 +1032,7 @@ Blocks on FlagSystemInitialised in SystemStatusFlagsHandle before returning. Cal
 
 Initialise the Device task — waits for system initialisation signal.
 
-Blocks indefinitely on FlagSystemInitialised so that no driver Process() functions run until all drivers have been initialised by ManagerTask.
+Blocks on FlagSystemInitialised to ensure all modules are initialised. Then opens any I2C-connected peripherals that this task owns, supplying the bus reference they need. Hardware errors during Open() set fault flags rather than blocking startup.
 
 #### `DeviceTaskLoop`
 
@@ -1065,6 +1065,12 @@ Each Process() function performs all hardware I/O, updates cached state, and set
 ## FSTypes
 
 *Shared types, error codes, and callback signature for the FileSystem subsystem.*
+
+---
+
+## FSUtils
+
+*Filesystem utility helpers — path manipulation and single-call file I/O.*
 
 ---
 
@@ -1276,6 +1282,48 @@ Perform a synchronous blocking memory write.
 
 ---
 
+## Interrupts
+
+*System interrupt infrastructure — GPIO dispatch and software interrupt bus.*
+
+### Types
+
+#### `SWIReasonBit`
+
+Reason bits passed to SystemTriggerSWI().
+
+| Value | Description |
+|-------|-------------|
+| `SWIReasonESTOP` | Emergency stop asserted. |
+| `SWIReasonAbort` | General controlled abort. |
+| `SWIReasonCount` | Number of reason bits — must stay <= 32. |
+
+### Functions
+
+#### `SystemTriggerSWI`
+
+```c
+void SystemTriggerSWI( uint32_t reason )
+```
+
+Trigger the system software interrupt with the given reason bitmask.
+
+Stores reason, pends the software interrupt NVIC line, and returns. The ISR sets FlagSystemAborted and dispatches to all handlers whose mask intersects reason in table order.
+
+| Parameter | Description |
+|-----------|-------------|
+| `reason` | One or more SWIReasonBit values OR'd together via BIT(). |
+
+#### `SystemSWIHandler`
+
+```c
+void SystemSWIHandler( void )
+```
+
+System software interrupt handler — call from ADC1_COMP_IRQHandler in stm32g0xx_it.c.
+
+---
+
 ## LoggingTask
 
 *Logging task — telemetry and event log persistence.*
@@ -1440,7 +1488,7 @@ Calls XxxInitModule() for every driver in dependency order. Waits for DEVICE_ALL
 
 Initialise all hardware driver modules and signal system readiness.
 
-Phase 1 — bus managers: create SPI and I2C semaphores. Must precede any driver that calls SPIOpen() or I2COpen() internally. Phase 2 — alloc-only InitModule() calls: create per-driver RTOS handles and assign compile-time GPIO/pin mappings. No hardware I/O at this stage. Phase 3 — wait for DEVICE_ALL_READY (set by device Open() calls in other tasks), enable GPIO interrupts, and broadcast FlagSystemInitialised.
+Phase 1 — bus managers: create SPI and I2C semaphores. Must precede any driver that calls SPIOpen() or I2COpen() internally. Phase 2 — all driver InitModule() calls. Each sets its own ready bit in DeviceStatusFlagsHandle on completion, satisfying DEVICE_ALL_READY. Phase 3 — wait for DEVICE_ALL_READY, enable GPIO interrupts, broadcast FlagSystemInitialised.
 
 #### `ManagerTaskLoop`
 
@@ -1749,144 +1797,62 @@ E-Stop rising-edge ISR handler — immediately de-energises the hot-side relay.
 
 #### `ReflowFlagBit`
 
-Reflow engine status flags, stored in ReflowStatusFlagsHandle.
+Reflow command and status flag bit indices for use with BIT().
 
 | Value | Description |
 |-------|-------------|
-| `FlagReflowReady` | Engine opened and ready to accept a profile. |
-| `FlagReflowInProgress` | A reflow cycle is actively running. |
-| `FlagReflowPaused` | Cycle suspended; oven holding at current stage target. |
-| `FlagReflowPreheating` | Currently in the preheat ramp stage. |
-| `FlagReflowSoaking` | Currently in the thermal soak stage. |
-| `FlagReflowReflowing` | Currently in the reflow (liquidus) stage. |
-| `FlagReflowCooling` | Currently in the cooldown stage. |
+| `FlagReflowStart` | Start a cycle; profile already loaded into state by ReflowStart(). |
+| `FlagReflowStop` | Stop the active cycle. |
+| `FlagReflowRunning` | A reflow cycle is active. |
+| `FlagReflowHoldActive` | Oven has reached stage target; hold condition is being evaluated. |
 | `FlagReflowDone` | Cycle completed successfully. |
-| `FlagReflowAborted` | Cycle was stopped before completion. |
-| `FlagReflowStatusFault` | Fault during execution — also propagated to FaultFlagsHandle. |
-| `ReflowFlagsCount` | Number of flags — must stay <= 24. |
+| `ReflowFlagsCount` | Number of flag bits — must stay <= 32. |
 
 ### Functions
 
-#### `ReflowOpen`
+#### `ReflowInitModule`
 
 ```c
-ReflowRef ReflowOpen( void )
+void ReflowInitModule( void )
 ```
 
-Open the reflow engine and acquire its OvenController reference.
+Initialise singleton state and signal module readiness.
 
-Creates ReflowStatusFlagsHandle and initialises the engine state. Must be called once before any other Reflow function.
+Called by ManagerTask during the InitModule phase. Acquires OvenController and ACFan references and sets FlagReflowEngineReady in DeviceStatusFlagsHandle.
 
-Idempotent — subsequent calls return the existing handle without re-initialising. Sets FlagReflowReady and FlagReflowEngineReady in DeviceStatusFlagsHandle.
-
-**Returns:** Handle to the engine instance, or NULL on failure.
+Initialise singleton state and signal module readiness.
 
 #### `ReflowStart`
 
 ```c
-bool ReflowStart( ReflowRef ref, const char * name )
+bool ReflowStart( const char * name )
 ```
 
 Load a profile by name and begin execution.
 
-Resolves name via the ReflowProfile module. If the named file is not found on the filesystem, the hardcoded default profile is used. Resets all status flags and starts the stage state machine from stage 0.
+Resolves name via the ReflowProfile module, falling back to the hardcoded default if the named file is not found. Starts the OvenController and sets FlagReflowInProgress. Clears all transient status flags before starting.
 
-If name is NULL or the file is not found on the filesystem, the hardcoded default profile is used. Resets all transient status flags and calls OCStart().
+Falls back to the hardcoded default if name is NULL or the file is not found. Sets FlagReflowStart; ReflowProcess() picks it up on the next tick and owns the cycle initialisation from there.
 
 | Parameter | Description |
 |-----------|-------------|
-| `ref` | Engine handle returned by ReflowOpen(). |
 | `name` | Profile filename or full path. Pass NULL to use the default. |
 
 **Returns:** True if the profile was accepted and execution has started.
 
-#### `ReflowAbort`
-
-```c
-void ReflowAbort( ReflowRef ref )
-```
-
-Abort the active cycle and return the oven to idle.
-
-Sets FlagReflowAborted, calls OCStop(), and clears FlagReflowInProgress. Safe to call at any point, including when no cycle is running.
-
-| Parameter | Description |
-|-----------|-------------|
-| `ref` | Engine handle returned by ReflowOpen(). |
-
-#### `ReflowPause`
-
-```c
-void ReflowPause( ReflowRef ref )
-```
-
-Suspend the active cycle and hold at the current stage target temperature.
-
-Sets FlagReflowPaused. The stage timer is frozen and the OvenController continues to regulate at the current target. Has no effect if no cycle is running or the cycle is already paused.
-
-| Parameter | Description |
-|-----------|-------------|
-| `ref` | Engine handle returned by ReflowOpen(). |
-
-#### `ReflowResume`
-
-```c
-void ReflowResume( ReflowRef ref )
-```
-
-Resume a paused cycle from the point at which it was suspended.
-
-Clears FlagReflowPaused and restarts the stage timer. Has no effect if the cycle is not paused.
-
-| Parameter | Description |
-|-----------|-------------|
-| `ref` | Engine handle returned by ReflowOpen(). |
-
 #### `ReflowProcess`
 
 ```c
-void ReflowProcess( ReflowRef ref )
+void ReflowProcess( void )
 ```
 
 Execute one iteration of the reflow state machine.
 
-Called from ReflowTaskLoop() in a continuous loop. When a cycle is active this function may block on osDelay() during timed holds. When idle it blocks on FlagReflowInProgress to yield the CPU.
+Called from ReflowTask in a continuous loop. Blocks on FlagReflowInProgress when idle. When a cycle is active, advances the stage machine, checks hold conditions, and watches FlagReflowStop and FlagSystemAborted between ticks.
 
-When idle, blocks on FlagReflowInProgress to yield the CPU. When running, checks hold conditions, updates fan speed, and advances stages. Delays 200 ms per tick so the OC regulation loop (in DeviceTask) runs freely.
+Execute one iteration of the reflow state machine.
 
-| Parameter | Description |
-|-----------|-------------|
-| `ref` | Engine handle returned by ReflowOpen(). |
-
-#### `ReflowGetStatus`
-
-```c
-uint32_t ReflowGetStatus( ReflowRef ref )
-```
-
-Return the current status flags as a snapshot bitmask.
-
-| Parameter | Description |
-|-----------|-------------|
-| `ref` | Engine handle returned by ReflowOpen(). |
-
-**Returns:** Bitmask of ReflowFlagBit values currently set.
-
-#### `ReflowGetStageIndex`
-
-```c
-uint8_t ReflowGetStageIndex( ReflowRef ref )
-```
-
-Return the zero-based index of the stage currently executing.
-
-Valid only while FlagReflowInProgress is set. Returns 0 when idle. Combined with the profile name this identifies the exact position in a multi-segment cycle.
-
-| Parameter | Description |
-|-----------|-------------|
-| `ref` | Engine handle returned by ReflowOpen(). |
-
-**Returns:** Current stage index (0 to stageCount − 1).
+Blocks on FlagReflowRunning when idle. When running, checks hold conditions, updates fan speed, and advances stages. Delays 200 ms per tick so the OC regulation loop runs freely.
 
 ---
 
@@ -1898,114 +1864,94 @@ Valid only while FlagReflowInProgress is set. Returns 0 when idle. Combined with
 
 #### ``
 
-Maximum number of stages in a reflow profile.
+Maximum stage name length, excluding NUL terminator.
 
 | Value | Description |
 |-------|-------------|
-| `kReflowMaxStages` |  |
+| `kStageNameLen` |  |
 
-#### `ReflowStageType`
+#### `ReflowFn`
 
-Classification of a reflow profile stage.
-
-| Value | Description |
-|-------|-------------|
-| `ReflowStagePreheat` | Controlled ramp to soak temperature. |
-| `ReflowStageSoak` | Thermal equalisation hold. |
-| `ReflowStageReflow` | Ramp to peak; hold above liquidus. |
-| `ReflowStageCool` | Controlled or passive cooldown. |
-
-#### `ReflowHoldCriterion`
-
-Criterion that must be satisfied before advancing to the next stage.
+Optional special action triggered when this stage enters its hold phase.
 
 | Value | Description |
 |-------|-------------|
-| `ReflowHoldTime` | Hold for a fixed duration once target temperature is reached. |
-| `ReflowHoldTemperature` | Hold until temperature crosses a threshold. |
+| `ReflowFnNone` | Normal hold — time or temperature criterion only. |
+| `ReflowFnCalFan` | Run AC fan calibration sequence during hold. |
+| `ReflowFnCalThermal` | Run thermal calibration sequence during hold. |
 
 #### `ReflowStage`
 
-A single stage within a reflow profile.
+A single stage within a reflow profile — a heap-allocated linked list node.
 
 | Type | Field | Description |
 |------|-------|-------------|
-| `ReflowStageType` | `type` | Stage classification — used for display and fault context. |
-| `int16_t` | `targetTempC` | Target temperature in °C. |
-| `float` | `rampRateC` | Ramp rate in °C/s. Positive = heat, negative = cool. |
-| `ReflowHoldCriterion` | `holdCriterion` | What triggers the advance to the next stage. |
-| `uint32_t` | `holdMs` | Hold duration (ReflowHoldTime): milliseconds at target. |
-| `int16_t` | `holdTempC` | Hold threshold (ReflowHoldTemperature): advance when temp crosses this. |
-| `union ReflowStage` | `` |  |
-| `Permille` | `fanStart` | Oven fan speed at stage entry (0–1000). |
-| `Permille` | `fanEnd` | Oven fan speed at stage exit. Equal to fanStart for fixed speed. |
-| `uint8_t` | `heaterTop` | Enable top heating element. |
-| `uint8_t` | `heaterRear` | Enable rear convection element. |
-| `uint8_t` | `heaterBottom` | Enable bottom heating element. |
-| `uint8_t` | `__pad0__` | Reserved — must be zero. |
-| `uint8_t` | `heaters` |  |
-| `union ReflowStage` | `` |  |
+| `char` | `name` | Human-readable stage label; empty string = no ty seen. |
+| `Temperature` | `targetTemp` | Target temperature in milli-°C. |
+| `RampRate` | `rampRate` | Ramp rate in milli-°C/s. Positive = heat, negative = cool. |
+| `DurationMs` | `timeoutMs` | Maximum ms to wait for target temperature. 0 = no timeout. |
+| `DurationMs` | `holdMs` | Milliseconds to hold once target temperature is reached. |
+| `Permille` | `fanSpeed` | Target oven fan speed for this stage (0–1000). |
+| `DurationMs` | `accelTimeMs` | Time to ramp from the previous fan speed to fanSpeed. 0 = instant. |
+| `bool` | `heaterTop` | Enable top heating element (tag h0=). |
+| `bool` | `heaterRear` | Enable rear convection element (tag h1=). |
+| `bool` | `heaterBottom` | Enable bottom heating element (tag h2=). |
+| `ReflowFn` | `function` | Action invoked once at hold entry, before the hold timer starts. ReflowFnNone for no action. |
+| `struct ReflowStage *` | `next` | Next stage in profile, or NULL if last. |
 
 #### `ReflowProfile`
 
-A complete reflow profile — a named sequence of stages.
+A complete reflow profile — a heap-allocated linked list of stages.
 
 | Type | Field | Description |
 |------|-------|-------------|
-| `char` | `name` | Human-readable profile name. |
-| `uint8_t` | `stageCount` | Number of valid entries in stages. |
-| `ReflowStage` | `stages` | Stage definitions, in execution order. |
+| `ReflowStagePtr` | `stages` | Head of stage linked list; NULL = empty. |
 
 ### Functions
-
-#### `ReflowProfileGetDefault`
-
-```c
-const ReflowProfile * ReflowProfileGetDefault( void )
-```
-
-Return a pointer to the hardcoded default lead-free reflow profile.
-
-The returned pointer is valid for the lifetime of the program.
-
-Return a pointer to the hardcoded default lead-free reflow profile.
-
-The returned pointer is valid for the lifetime of the program.
 
 #### `ReflowProfileLoad`
 
 ```c
-bool ReflowProfileLoad( const char * name, ReflowProfilePtr out )
+ReflowProfilePtr ReflowProfileLoad( const char * name )
 ```
 
-Load a profile from the filesystem into a caller-supplied buffer.
+Load a profile by name, or build the built-in default if not found.
 
-name may be a bare filename (e.g. "leaded.rfl") or a full pathname. Bare filenames are resolved against the profile storage directory.
-
-The file is read as a ProfileFileHeader followed by a ReflowProfile struct. Returns false if the file is absent, the header magic or version is wrong, the read size is incorrect, or stageCount exceeds kReflowMaxStages.
+Allocates the profile struct and all stage nodes from the heap. Falls back to the built-in lead-free default if name is NULL or the file is absent. The caller owns the result and must call ReflowProfileFree() when done.
 
 | Parameter | Description |
 |-----------|-------------|
-| `name` | Filename or full path of the profile to load. |
-| `out` | Caller-supplied buffer to receive the profile data. |
+| `name` | Profile filename or full path. NULL → built-in default. |
 
-**Returns:** True if the profile was read and validated successfully.
+**Returns:** Heap-allocated profile, or NULL on allocation failure.
+
+#### `ReflowProfileFree`
+
+```c
+void ReflowProfileFree( ReflowProfilePtr profile )
+```
+
+Free a heap-allocated profile and all its stage nodes.
+
+Safe to call with NULL. After returning, the pointer is invalid.
+
+| Parameter | Description |
+|-----------|-------------|
+| `profile` | Profile returned by ReflowProfileLoad(). |
 
 #### `ReflowProfileSave`
 
 ```c
-bool ReflowProfileSave( const ReflowProfile * profile, const char * name )
+bool ReflowProfileSave( ReflowProfilePtr profile, const char * name )
 ```
 
 Save a profile to the filesystem.
 
 name may be a bare filename or a full pathname. Bare filenames are written to the profile storage directory.
 
-Writes a ProfileFileHeader followed by the ReflowProfile struct. Creates the file if absent; truncates it if it exists. Returns false on any I/O error or if path resolution fails.
-
 | Parameter | Description |
 |-----------|-------------|
-| `profile` | Profile to save. |
+| `profile` | Profile to serialise. |
 | `name` | Destination filename or full path. |
 
 **Returns:** True if the profile was written successfully.
@@ -2242,9 +2188,10 @@ System milestone flags, stored in SystemStatusFlagsHandle.
 
 | Value | Description |
 |-------|-------------|
-| `FlagSystemInitialised` | All drivers are ready; tasks may proceed. |
+| `FlagSystemInitialised` | All modules are initialised; tasks may proceed. |
 | `FlagInterruptsEnabled` | GPIO edge interrupts have been unmasked. |
 | `FlagSupervisorServiceRequest` | ManagerTask: a supervisor action is requested. |
+| `FlagSystemAborted` | Software interrupt has fired; system is aborting. |
 | `SystemFlagsCount` | Number of flags — must stay <= 24. |
 
 #### `DeviceFlagsBit`
@@ -2273,7 +2220,6 @@ Per-device ready flags, stored in DeviceStatusFlagsHandle.
 | `FlagOvenLightReady` | Oven interior light TRIAC channel ready. — FEATURE_OVEN_LIGHT. |
 | `FlagOvenControllerReady` | Oven controller initialised and all device refs valid. |
 | `FlagRotaryEncoderReady` | Rotary encoder (AS5600) initialised and I2C ref valid. — FEATURE_ROTARY_ENCODER. |
-| `FlagReflowEngineReady` | Reflow engine opened and OvenController ref acquired. |
 | `DeviceFlagsCount` | Number of flags — must stay <= 24. |
 
 #### `FaultFlagsBit`
@@ -2312,6 +2258,26 @@ Active fault flags, stored in FaultFlagsHandle.
 ## TaskUtils
 
 *FreeRTOS / bare-metal portability layer.*
+
+### Functions
+
+#### `WaitForFlags`
+
+```c
+bool WaitForFlags( osEventFlagsId_t handle, uint32_t bits, uint32_t ms )
+```
+
+Wait up to ms for any bit in bits to be set in handle, without clearing.
+
+Standardises the osFlagsWaitAny | osFlagsNoClear pattern used throughout the codebase. Any task may call this to block on any event flag group.
+
+| Parameter | Description |
+|-----------|-------------|
+| `handle` | CMSIS-RTOS2 event flag group to wait on. |
+| `bits` | Bitmask of flag bits to watch (any bit fires the return). |
+| `ms` | Maximum wait time in milliseconds; use osWaitForever to block indefinitely. |
+
+**Returns:** True if any watched bit was set before the timeout.
 
 ---
 
