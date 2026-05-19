@@ -32,6 +32,7 @@
 
 // Actuators and indicators
 #define FEATURE_OVEN_FAN               1   ///< AC convection fan inside oven cavity.
+#define FEATURE_ROTARY_ENCODER         1   ///< AS5600 magnetic encoder on oven fan shaft.
 #define FEATURE_BOARD_FAN              1   ///< DC board cooling fan (EMC2101).
 #define FEATURE_OVEN_LIGHT             1   ///< Oven interior light (TRIAC-switched).
 #define FEATURE_BUZZER                 1   ///< Piezo buzzer.
@@ -74,13 +75,6 @@
     #define FEATURE_THERMISTORS   1
 #else
     #define FEATURE_THERMISTORS   0
-#endif
-
-// Rotary encoder: only meaningful with the oven fan.
-#if FEATURE_OVEN_FAN
-    #define FEATURE_ROTARY_ENCODER   1
-#else
-    #define FEATURE_ROTARY_ENCODER   0
 #endif
 
 // Filesystem: requires flash.

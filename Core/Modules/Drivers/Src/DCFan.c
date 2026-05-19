@@ -85,6 +85,7 @@ void DCFanInitModule( void ) {
     memset( instances, 0, sizeof( instances ) );
     instances[ BoardCoolingFan ].id           = BoardCoolingFan;
     instances[ BoardCoolingFan ].statusHandle = osEventFlagsNew( NULL );
+    osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagBoardFanReady ) );
 }
 
 /// @brief Open a handle to the specified fan channel and configure the EMC2101.
@@ -107,7 +108,6 @@ DCFanRef DCFanOpen( DCFanID fanID, I2CRef i2c ) {
         uint8_t config = 0x00;
         if ( I2CWriteSync( i2c, kEmc2101Addr, kRegFanConfig, I2C_MEMADD_SIZE_8BIT, &config, 1, 100 ) == HAL_OK ) {
             osEventFlagsSet( fan->statusHandle, BIT( FlagDCFanStatusReady ) );
-            osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagBoardFanReady ) );
         }
     }
 

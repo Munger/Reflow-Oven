@@ -37,20 +37,25 @@ typedef enum {
 
 _Static_assert( ACLightFlagsCount <= 24, "ACLightStatusFlags out of bounds" );
 
-/// @brief Opaque handle to the AC light instance.
+/// @brief Logical identifiers for AC light instances.
+typedef enum {
+    OvenLight1 = 0, ///< Primary oven cavity light
+    ACLightCount
+} ACLightID;
+
+/// @brief Opaque handle to an AC light instance.
 typedef struct ACLightInstance* ACLightRef;
 
-/// @brief Allocate instance resources. Does not access hardware.
+/// @brief Allocate per-instance resources. Does not access hardware.
 void      ACLightInitModule( void );
 
-/// @brief Open the AC light and acquire its TRIAC channel.
+/// @brief Open an AC light instance and acquire its TRIAC channel.
 ///
-/// On first call, opens the TRIAC channel and sets FlagACLightStatusReady plus
-/// the global DeviceStatusFlagsHandle ready bit. Subsequent calls return the
-/// existing instance without re-opening.
+/// Idempotent — subsequent calls with the same @p id return the existing handle.
 ///
-/// @return Handle to the instance, or NULL on internal error.
-ACLightRef ACLightOpen( void );
+/// @param[in] id  Light instance identifier.
+/// @return Handle to the instance; NULL if @p id is out of range.
+ACLightRef ACLightOpen( ACLightID id );
 
 /// @brief Queue a power request; applied to the TRIAC by ACLightProcess() on the next tick.
 ///

@@ -31,16 +31,17 @@
 #include "DCFan.h"
 #include "RotaryEncoder.h"
 #include "ACFan.h"
+#include "ACLight.h"
 #include "USBPowerDelivery.h"
+#include "Flash.h"
 
 /// @brief Initialise all driver modules in dependency order, then signal system readiness.
 ///
 /// Phase 1 — bus managers: create SPI and I2C semaphores. Must precede any driver
 ///            that calls SPIOpen() or I2COpen() internally.
-/// Phase 2 — alloc-only InitModule() calls: create per-driver RTOS handles and assign
-///            compile-time GPIO/pin mappings. No hardware I/O at this stage.
-/// Phase 3 — wait for DEVICE_ALL_READY (set by device Open() calls in other tasks),
-///            enable GPIO interrupts, and broadcast FlagSystemInitialised.
+/// Phase 2 — all driver InitModule() calls. Each sets its own ready bit in
+///            DeviceStatusFlagsHandle on completion, satisfying DEVICE_ALL_READY.
+/// Phase 3 — wait for DEVICE_ALL_READY, enable GPIO interrupts, broadcast FlagSystemInitialised.
 void ManagerTaskInit( void ) {
 
     // Bus managers
@@ -58,7 +59,7 @@ void ManagerTaskInit( void ) {
     TriacInitModule();
     OCInitModule();
 
-    #if FEATURE_BUZZER
+#if FEATURE_BUZZER
     BuzzerInitModule();
 #endif // FEATURE_BUZZER
 
@@ -89,6 +90,14 @@ void ManagerTaskInit( void ) {
 #if FEATURE_USB_PD
     USBPDInitModule();
 #endif // FEATURE_USB_PD
+
+#if FEATURE_OVEN_LIGHT
+    ACLightInitModule();
+#endif // FEATURE_OVEN_LIGHT
+
+#if FEATURE_FLASH
+    FlashInitModule();
+#endif // FEATURE_FLASH
 
     // Wait for all devices, enable interrupts, signal init complete
     osEventFlagsWait( DeviceStatusFlagsHandle, DEVICE_ALL_READY, osFlagsWaitAll | osFlagsNoClear, osWaitForever );

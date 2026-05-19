@@ -133,4 +133,19 @@
     #define portYIELD_FROM_ISR(x) vPortYieldFromISR(x)
 #endif
 
+#if FREE_RTOS
+
+/// @brief Wait up to @p ms for any bit in @p bits to be set in @p handle, without clearing.
+///
+/// Standardises the osFlagsWaitAny | osFlagsNoClear pattern used throughout the
+/// codebase. Any task may call this to block on any event flag group.
+///
+/// @param[in] handle  CMSIS-RTOS2 event flag group to wait on.
+/// @param[in] bits    Bitmask of flag bits to watch (any bit fires the return).
+/// @param[in] ms      Maximum wait time in milliseconds; use osWaitForever to block indefinitely.
+/// @return True if any watched bit was set before the timeout.
+bool WaitForFlags( osEventFlagsId_t handle, uint32_t bits, uint32_t ms );
+
+#endif // FREE_RTOS
+
 #endif // TASKUTILS_H

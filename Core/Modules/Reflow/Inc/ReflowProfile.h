@@ -2,14 +2,20 @@
 ///
 /// @brief Reflow profile data structures and filesystem I/O.
 ///
-/// Owns the `ReflowProfile` type and provides load, save, and default-profile
-/// access. Profiles are identified by name (filename without path) or by full
-/// pathname. When loading by name the module resolves the path internally.
+/// Owns the `ReflowProfile` and `ReflowStage` types. Stages form a
+/// singly-linked list; the profile holds the head pointer. Both are
+/// heap-allocated by `ReflowProfileLoad()` and must be released with
+/// `ReflowProfileFree()` when the cycle ends.
 ///
-/// If no profile file is found, `ReflowProfileGetDefault()` returns a pointer
-/// to a hardcoded fallback profile that covers a standard lead-free reflow
-/// cycle. This module is a dependency of `Reflow.c`; callers do not need to
-/// include it directly unless they are building or inspecting profiles.
+/// On-disk format is plain ASCII tagged CSV — endian-agnostic and transferable
+/// verbatim over a CLI link. Each line is a comma-separated list of `xx=value`
+/// fields (2-char tag). A line containing `ty=` is a stage record; all other
+/// tags update the profile header. Unrecognised tags are discarded; absent
+/// stage fields take defined defaults. See ReflowProfile.c for the full tag
+/// table and format version history.
+///
+/// If `name` is NULL or the file is not found, `ReflowProfileLoad()` returns
+/// a heap copy of the built-in lead-free default profile.
 ///
 /// @copyright Copyright (c) 2026 Tim Hosking
 /// @see https://github.com/munger
@@ -28,90 +34,80 @@
 // CONSTANTS
 // ============================================================================
 
-/// @brief Maximum number of stages in a reflow profile.
-enum { kReflowMaxStages = 8 };
-
 /// @brief Filesystem directory where reflow profiles are stored.
 /// Bare filenames passed to ReflowProfileLoad / ReflowProfileSave are
 /// resolved relative to this path.
 #define REFLOW_PROFILE_DIR    "/" PART_NAME_USER "/profiles"
 
+/// @brief Maximum stage name length, excluding NUL terminator.
+enum { kStageNameLen = 16 };
+
 // ============================================================================
 // PROFILE STRUCTURES
 // ============================================================================
 
-/// @brief Classification of a reflow profile stage.
+/// @brief Optional special action triggered when this stage enters its hold phase.
 typedef enum {
-    ReflowStagePreheat = 0, ///< Controlled ramp to soak temperature.
-    ReflowStageSoak,        ///< Thermal equalisation hold.
-    ReflowStageReflow,      ///< Ramp to peak; hold above liquidus.
-    ReflowStageCool,        ///< Controlled or passive cooldown.
-} ReflowStageType;
+    ReflowFnNone = 0,      ///< Normal hold — time or temperature criterion only.
+    ReflowFnCalFan,        ///< Run AC fan calibration sequence during hold.
+    ReflowFnCalThermal,    ///< Run thermal calibration sequence during hold.
+} ReflowFn;
 
-/// @brief Criterion that must be satisfied before advancing to the next stage.
-typedef enum {
-    ReflowHoldTime,         ///< Hold for a fixed duration once target temperature is reached.
-    ReflowHoldTemperature,  ///< Hold until temperature crosses a threshold.
-} ReflowHoldCriterion;
-
-/// @brief A single stage within a reflow profile.
+/// @brief A single stage within a reflow profile — a heap-allocated linked list node.
+///
+/// Allocated by ReflowProfileLoad(); freed by ReflowProfileFree(). Do not
+/// free individual nodes directly.
 typedef struct ReflowStage {
-    ReflowStageType     type;          ///< Stage classification — used for display and fault context.
-    int16_t             targetTempC;   ///< Target temperature in °C.
-    float               rampRateC;     ///< Ramp rate in °C/s. Positive = heat, negative = cool.
-    ReflowHoldCriterion holdCriterion; ///< What triggers the advance to the next stage.
-    union {
-        uint32_t        holdMs;        ///< Hold duration (ReflowHoldTime): milliseconds at target.
-        int16_t         holdTempC;     ///< Hold threshold (ReflowHoldTemperature): advance when temp crosses this.
-    };
-    Permille            fanStart;      ///< Oven fan speed at stage entry (0–1000).
-    Permille            fanEnd;        ///< Oven fan speed at stage exit. Equal to fanStart for fixed speed.
-    union {
-        struct {
-            uint8_t heaterTop    : 1;  ///< Enable top heating element.
-            uint8_t heaterRear   : 1;  ///< Enable rear convection element.
-            uint8_t heaterBottom : 1;  ///< Enable bottom heating element.
-            uint8_t              : 5;  ///< Reserved — must be zero.
-        };
-        uint8_t heaters;               ///< All heater bits as a byte for serialisation.
-                                       ///<  Bit layout assumes little-endian (Cortex-M0+): bit0=top, bit1=rear, bit2=bottom.
-    };
+    char                name[ kStageNameLen + 1 ]; ///< Human-readable stage label; empty string = no ty seen.
+    Temperature         targetTemp;    ///< Target temperature in milli-°C.
+    RampRate            rampRate;      ///< Ramp rate in milli-°C/s. Positive = heat, negative = cool.
+    DurationMs          timeoutMs;     ///< Maximum ms to wait for target temperature. 0 = no timeout.
+    DurationMs          holdMs;        ///< Milliseconds to hold once target temperature is reached.
+    Permille            fanSpeed;      ///< Target oven fan speed for this stage (0–1000).
+    DurationMs          accelTimeMs;   ///< Time to ramp from the previous fan speed to fanSpeed. 0 = instant.
+    bool                heaterTop;     ///< Enable top heating element (tag h0=).
+    bool                heaterRear;    ///< Enable rear convection element (tag h1=).
+    bool                heaterBottom;  ///< Enable bottom heating element (tag h2=).
+    ReflowFn            function;      ///< Action invoked once at hold entry, before the hold timer starts. ReflowFnNone for no action.
+    struct ReflowStage* next;          ///< Next stage in profile, or NULL if last.
 } ReflowStage, *ReflowStagePtr;
 
-/// @brief A complete reflow profile — a named sequence of stages.
+/// @brief A complete reflow profile — a heap-allocated linked list of stages.
+///
+/// Allocated by ReflowProfileLoad(); freed by ReflowProfileFree().
 typedef struct ReflowProfile {
-    char        name[ 32 ];                 ///< Human-readable profile name.
-    uint8_t     stageCount;                 ///< Number of valid entries in `stages`.
-    ReflowStage stages[ kReflowMaxStages ]; ///< Stage definitions, in execution order.
+    ReflowStagePtr stages; ///< Head of stage linked list; NULL = empty.
 } ReflowProfile, *ReflowProfilePtr;
 
 // ============================================================================
 // PUBLIC API
 // ============================================================================
 
-/// @brief Return a pointer to the hardcoded default lead-free reflow profile.
+/// @brief Load a profile by name, or build the built-in default if not found.
 ///
-/// The returned pointer is valid for the lifetime of the program.
-const ReflowProfile* ReflowProfileGetDefault( void );
+/// Allocates the profile struct and all stage nodes from the heap. Falls back
+/// to the built-in lead-free default if @p name is NULL or the file is absent.
+/// The caller owns the result and must call ReflowProfileFree() when done.
+///
+/// @param[in] name  Profile filename or full path. NULL → built-in default.
+/// @return Heap-allocated profile, or NULL on allocation failure.
+ReflowProfilePtr ReflowProfileLoad( const char* name );
 
-/// @brief Load a profile from the filesystem into a caller-supplied buffer.
+/// @brief Free a heap-allocated profile and all its stage nodes.
 ///
-/// @p name may be a bare filename (e.g. `"leaded.rfl"`) or a full pathname.
-/// Bare filenames are resolved against the profile storage directory.
+/// Safe to call with NULL. After returning, the pointer is invalid.
 ///
-/// @param[in]  name  Filename or full path of the profile to load.
-/// @param[out] out   Caller-supplied buffer to receive the profile data.
-/// @return True if the profile was read and validated successfully.
-bool ReflowProfileLoad( const char* name, ReflowProfilePtr out );
+/// @param[in] profile  Profile returned by ReflowProfileLoad().
+void ReflowProfileFree( ReflowProfilePtr profile );
 
 /// @brief Save a profile to the filesystem.
 ///
 /// @p name may be a bare filename or a full pathname. Bare filenames are
 /// written to the profile storage directory.
 ///
-/// @param[in] profile  Profile to save.
+/// @param[in] profile  Profile to serialise.
 /// @param[in] name     Destination filename or full path.
 /// @return True if the profile was written successfully.
-bool ReflowProfileSave( const ReflowProfile* profile, const char* name );
+bool ReflowProfileSave( ReflowProfilePtr profile, const char* name );
 
 #endif // REFLOW_PROFILE_H

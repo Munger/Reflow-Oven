@@ -7,10 +7,8 @@
 /// that achieve each target. See `ACFanTuning.h` for the public API.
 ///
 /// Design notes:
-///   - All blocking delays use `osDelay()` — this file assumes a FreeRTOS task
-///     context throughout.
 ///   - `REProcess()` is called immediately before every `REGetVelocity()` read,
-///     followed by `osDelay(10)` to allow the async I2C transaction to complete.
+///     followed by a 10 ms abort-responsive wait to allow the async I2C transaction to complete.
 ///     This is conservative but safe given FreeRTOS tick resolution.
 ///   - `REGetVelocity()` returns `Rpm` (uint16_t), already scaled to RPM inside
 ///     the driver. Spuriously high values from corrupt I2C reads are clamped to
@@ -52,16 +50,12 @@
 
 #include "cmsis_os.h"
 
+#include "SystemStatusFlags.h"
 #include "ACFanTuning.h"
+#include "Reflow.h"
 #include "RotaryEncoder.h"
+#include "TaskUtils.h"
 #include "Triac.h"
-
-// ============================================================================
-// HARDWARE SELECTION
-// ============================================================================
-
-/// @brief TRIAC channel used by this module.
-static const TriacID kAcFanTriacId = TriacOvenFan;
 
 // ============================================================================
 // CALIBRATION CONSTANTS
@@ -210,6 +204,19 @@ static TriacRef         s_triac   = NULL;
 /// @brief Rotary encoder handle acquired in ACFanInitCalibration().
 static RotaryEncoderRef s_encoder = NULL;
 
+/// @brief Set by Pause() when FlagReflowStop fires during calibration.
+static bool s_aborted = false;
+
+/// @brief Wait up to @p ms for the stop flag, setting s_aborted if it fires.
+/// @return True if the calibration should abort immediately.
+static bool Pause( DurationMs ms ) {
+    if ( WaitForFlags( ReflowFlagsHandle, BIT( FlagReflowStop ), ms ) ) {
+        s_aborted = true;
+        return true;
+    }
+    return false;
+}
+
 // ============================================================================
 // INTERNAL — RPM READING
 // ============================================================================
@@ -224,7 +231,7 @@ static RotaryEncoderRef s_encoder = NULL;
 /// @return Measured rotor velocity in RPM, or 0 if the reading was implausible.
 static Rpm ReadRPM( void ) {
     REProcess();
-    osDelay( 10 );
+    Pause( 10 );
     Rpm v = REGetVelocity( s_encoder );
     return ( v > 10000u ) ? (Rpm)0 : v;
 }
@@ -240,7 +247,7 @@ static Rpm ReadRPM( void ) {
 static void RotorStop( void ) {
     TriacOff( s_triac );
     while ( ReadRPM() > kSpindownRpmThreshold ) {
-        osDelay( kSpindownPollMs );
+        if ( Pause( kSpindownPollMs ) ) return;
     }
 }
 
@@ -262,7 +269,7 @@ static bool StartupKick( Rpm targetRPM ) {
     DurationMs elapsed      = 0;
 
     while ( elapsed < kSpinupTimeoutMs ) {
-        osDelay( 2 );
+        if ( Pause( 2 ) ) return false;
         elapsed += 2;
 
         Rpm current = ReadRPM();
@@ -294,7 +301,7 @@ static bool StartupKick( Rpm targetRPM ) {
 static void PeriodicFlush( void ) {
     TriacDriveParams fullPower = { .phaseDelayUs = 0, .burstOn = 1, .burstWindow = 1 };
     TriacRun( s_triac, fullPower );
-    osDelay( FLUSH_DURATION_MS );
+    Pause( FLUSH_DURATION_MS );
     RotorStop();
 }
 #endif  // PERIODIC_FLUSH
@@ -343,7 +350,7 @@ static bool WaitForSettle( Rpm* settledRPM, uint16_t* p2pSpread ) {
             }
         }
 
-        osDelay( 100 );
+        if ( Pause( 100 ) ) return false;
         elapsed += 100;
     }
 
@@ -375,7 +382,7 @@ static uint32_t MeasurePeakJerk( DurationMs durationMs ) {
     DurationMs elapsed      = 0;
 
     while ( elapsed < durationMs ) {
-        osDelay( kJerkPollMs );
+        if ( Pause( kJerkPollMs ) ) break;
         elapsed += kJerkPollMs;
 
         int32_t  currentVelocity = (int32_t)ReadRPM();
@@ -560,19 +567,6 @@ static uint8_t ClampNoff( int32_t v ) {
 }
 
 // ============================================================================
-// INTERNAL — LINEAR INTERPOLATION
-// ============================================================================
-
-/// @brief Linearly interpolate between @p low and @p high at fractional position @p fractionPm.
-/// @param[in] low        Value at fraction = 0.
-/// @param[in] high       Value at fraction = 1000.
-/// @param[in] fractionPm Fractional position in permille (0–1000).
-/// @return Interpolated integer value.
-static int32_t InterpLinear( int32_t low, int32_t high, Permille fractionPm ) {
-    return low + ( ( ( high - low ) * (int32_t)fractionPm ) / 1000 );
-}
-
-// ============================================================================
 // INTERNAL — OPERATIONAL FLOOR ENFORCEMENT
 // ============================================================================
 
@@ -614,15 +608,6 @@ static void EnforceOperationalFloor( ACFanProfileMapPtr map ) {
 // PUBLIC API — INIT
 // ============================================================================
 
-/// @brief Initialise the AC fan tuning module.
-///
-/// Acquires the TRIAC channel (AC_FAN_TRIAC_ID) and the rotary encoder handle.
-/// Must be called once before ACFanRunCalibration() or ACFanDrive().
-void ACFanInitCalibration( void ) {
-    s_triac   = TriacOpen( kAcFanTriacId );
-    s_encoder = REGetRef( RotaryEncoder1 );
-}
-
 // ============================================================================
 // PUBLIC API — CALIBRATION
 // ============================================================================
@@ -646,10 +631,11 @@ void ACFanInitCalibration( void ) {
 /// @note Blocks for up to approximately 45 minutes. Must be called from a
 ///       FreeRTOS task context.
 /// @warning The caller must persist mapOut to non-volatile storage after return.
-void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
-    if ( !mapOut || !s_triac || !s_encoder ) {
-        return;
-    }
+void ACFanRunCalibration( TriacRef triac, RotaryEncoderRef encoder, ACFanProfileMapPtr mapOut ) {
+    if ( !triac || !encoder || !mapOut ) return;
+    s_triac   = triac;
+    s_encoder = encoder;
+    s_aborted = false;
 
     memset( mapOut, 0, sizeof( ACFanProfileMap ) );
 
@@ -680,7 +666,7 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
     {
         TriacDriveParams fullPower = { .phaseDelayUs = 0, .burstOn = 1, .burstWindow = 1 };
         TriacRun( s_triac, fullPower );
-        osDelay( kMaxRpmSettleMs );
+        if ( Pause( kMaxRpmSettleMs ) ) { TriacOff( s_triac ); return; }
         mapOut->motorMaxRPM = ReadRPM();
         TriacOff( s_triac );
     }
@@ -694,7 +680,7 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
     // -------------------------------------------------------------------------
     // Step 2: Per-step calibration loop.
     // -------------------------------------------------------------------------
-    for ( uint8_t step = 1; step <= kAcFanNumSteps; step++ ) {
+    for ( uint8_t step = 1; step <= kAcFanNumSteps && !s_aborted; step++ ) {
         Rpm targetRPM = (Rpm)( ( (uint32_t)motorMax * step * kAcFanStepIncrementPm ) / 1000UL );
         Rpm tolP1     = (Rpm)( ( (uint32_t)motorMax * kPhase1RpmTolerancePm ) / 1000UL );
         Rpm tolP2     = (Rpm)( ( (uint32_t)motorMax * kPhase2RpmTolerancePm ) / 1000UL );
@@ -764,12 +750,12 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
         // higher nOff means less duty, which can only worsen a stall.
         // ---------------------------------------------------------------------
         if ( !skippedCoarseGrid ) {
-            for ( uint8_t ai = 0; ai < kPhase1AlphaSteps; ai++ ) {
+            for ( uint8_t ai = 0; ai < kPhase1AlphaSteps && !s_aborted; ai++ ) {
                 uint16_t alpha = (uint16_t)( kAcFanMinAlphaUs +
                                              ( (uint32_t)ai * ( kAcFanMaxAlphaUs - kAcFanMinAlphaUs ) ) /
                                                  ( kPhase1AlphaSteps - 1 ) );
 
-                for ( uint8_t ni = 0; ni < kPhase1NonSteps; ni++ ) {
+                for ( uint8_t ni = 0; ni < kPhase1NonSteps && !s_aborted; ni++ ) {
                     uint8_t nOn = (uint8_t)( 1 + ( (uint32_t)ni * ( kAcFanMaxBurstWindow - 1 ) ) /
                                                       ( kPhase1NonSteps - 1 ) );
 
@@ -857,13 +843,13 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
         int32_t offStart = (int32_t)bestP1.nOff - kPhase2NoffRadius;
         int32_t offEnd   = (int32_t)bestP1.nOff + kPhase2NoffRadius;
 
-        for ( int32_t aRaw = aStart; aRaw <= aEnd; aRaw += (int32_t)kPhase2AlphaStepUs ) {
+        for ( int32_t aRaw = aStart; aRaw <= aEnd && !s_aborted; aRaw += (int32_t)kPhase2AlphaStepUs ) {
             uint16_t alpha = ClampAlpha( aRaw );
 
-            for ( int32_t onRaw = onStart; onRaw <= onEnd; onRaw++ ) {
+            for ( int32_t onRaw = onStart; onRaw <= onEnd && !s_aborted; onRaw++ ) {
                 uint8_t nOn = ClampNon( onRaw );
 
-                for ( int32_t offRaw = offStart; offRaw <= offEnd; offRaw++ ) {
+                for ( int32_t offRaw = offStart; offRaw <= offEnd && !s_aborted; offRaw++ ) {
                     uint8_t nOff = ClampNoff( offRaw );
 
 #if PERIODIC_FLUSH
@@ -916,90 +902,9 @@ void ACFanRunCalibration( ACFanProfileMapPtr mapOut ) {
     // Step 3: Enforce operational floor and assign slot 0.
     // -------------------------------------------------------------------------
     RotorStop();
-    EnforceOperationalFloor( mapOut );
-}
-
-// ============================================================================
-// PUBLIC API — RUNTIME DRIVE
-// ============================================================================
-
-/// @brief Drive the fan at @p requestedPm permille of motorMaxRPM using a calibrated map.
-///
-/// The profile map divides the speed range into kAcFanNumSteps equal bands.
-/// Requests exactly on a band boundary are applied directly. Requests between
-/// two boundaries are linearly interpolated across all three drive parameters
-/// (phaseDelayUs, burstOn, burstWindow).
-///
-/// Special case: if one neighbouring slot has `burstOn=0` (motor off) and the
-/// other does not, interpolation would produce meaningless fractional values.
-/// The function snaps to whichever slot is nearer instead.
-///
-/// Guard: after interpolation, `burstOn` is clamped to `burstWindow`. Independent
-/// interpolation of both fields can produce a rounding inconsistency where
-/// `burstOn > burstWindow`, which the TRIAC driver would reject.
-void ACFanDrive( const ACFanProfileMapPtr map, Permille requestedPm ) {
-    if ( !map || !s_triac ) {
-        return;
+    if ( !s_aborted ) {
+        EnforceOperationalFloor( mapOut );
     }
-
-    if ( requestedPm > 1000 ) requestedPm = 1000;
-
-    // Zero — apply slot 0 (motor off).
-    if ( requestedPm == 0 ) {
-        TriacDriveParams p;
-        p.phaseDelayUs = map->slots[ 0 ].strategy.phaseDelayUs;
-        p.burstOn      = map->slots[ 0 ].strategy.burstOn;
-        p.burstWindow  = map->slots[ 0 ].strategy.burstWindow;
-        TriacRun( s_triac, p );
-        return;
-    }
-
-    uint8_t lowerIdx = (uint8_t)( requestedPm / kAcFanStepIncrementPm );
-    uint8_t upperIdx = lowerIdx + 1;
-
-    if ( lowerIdx > kAcFanNumSteps ) lowerIdx = kAcFanNumSteps;
-    if ( upperIdx > kAcFanNumSteps ) upperIdx = kAcFanNumSteps;
-
-    // Exact boundary — no interpolation needed.
-    if ( lowerIdx == upperIdx || ( requestedPm % kAcFanStepIncrementPm ) == 0 ) {
-        TriacDriveParams p;
-        p.phaseDelayUs = map->slots[ lowerIdx ].strategy.phaseDelayUs;
-        p.burstOn      = map->slots[ lowerIdx ].strategy.burstOn;
-        p.burstWindow  = map->slots[ lowerIdx ].strategy.burstWindow;
-        TriacRun( s_triac, p );
-        return;
-    }
-
-    const ACFanDriveParamsPtr low  = &map->slots[ lowerIdx ].strategy;
-    const ACFanDriveParamsPtr high = &map->slots[ upperIdx ].strategy;
-
-    // Fractional position within the band in permille (0–1000).
-    // e.g. requestedPm=150 with step=100 → lower=1, fraction=500.
-    Permille fraction = (Permille)( ( requestedPm % kAcFanStepIncrementPm ) * 10U );
-
-    // Snap rather than interpolate across the on/off boundary.
-    if ( ( low->burstOn == 0 ) != ( high->burstOn == 0 ) ) {
-        const ACFanDriveParamsPtr chosen = ( fraction < 500 ) ? low : high;
-        TriacDriveParams          p;
-        p.phaseDelayUs = chosen->phaseDelayUs;
-        p.burstOn      = chosen->burstOn;
-        p.burstWindow  = chosen->burstWindow;
-        TriacRun( s_triac, p );
-        return;
-    }
-
-    // Standard linear interpolation.
-    TriacDriveParams p;
-    p.phaseDelayUs = (uint16_t)InterpLinear( (int32_t)low->phaseDelayUs, (int32_t)high->phaseDelayUs, fraction );
-    p.burstOn      = (uint8_t)InterpLinear( (int32_t)low->burstOn, (int32_t)high->burstOn, fraction );
-    p.burstWindow  = (uint8_t)InterpLinear( (int32_t)low->burstWindow, (int32_t)high->burstWindow, fraction );
-
-    // Guard against burstOn > burstWindow due to independent rounding.
-    if ( p.burstOn > p.burstWindow ) {
-        p.burstOn = p.burstWindow;
-    }
-
-    TriacRun( s_triac, p );
 }
 
 #endif // FEATURE_AC_FAN_CALIBRATION

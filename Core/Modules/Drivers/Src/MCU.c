@@ -65,15 +65,13 @@ void MCUInitModule( void ) {
     memset( instances, 0, sizeof( instances ) );
     instances[ MCU0 ].id           = MCU0;
     instances[ MCU0 ].statusHandle = osEventFlagsNew( NULL );
+    osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagMCUReady ) );
 }
 
 /// @brief Return a handle to the specified MCU instance.
 MCURef MCUOpen( MCUID id ) {
     if ( id >= MCUCount ) return NULL;
-    MCUInstancePtr inst = &instances[ id ];
-    osEventFlagsSet( inst->statusHandle, BIT( FlagMCUStatusReady ) );
-    osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagMCUReady ) );
-    return inst;
+    return &instances[ id ];
 }
 
 /// @brief Return the full status bitmask from the private instance status flags.

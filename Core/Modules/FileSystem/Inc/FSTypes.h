@@ -20,6 +20,27 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+#include "lfs.h"
+
+// ============================================================================
+// Filesystem limits
+// ============================================================================
+
+/// @brief Maximum length of a single filename component, excluding the NUL terminator.
+///
+/// Derived from LFS_NAME_MAX so that a change in the LittleFS configuration
+/// propagates automatically. Buffers that hold a bare filename should be
+/// declared as char buf[ kFSMaxNameLen + 1 ].
+enum { kFSMaxNameLen = LFS_NAME_MAX };
+
+/// @brief Maximum absolute path length accepted by this project, excluding the NUL terminator.
+///
+/// LittleFS imposes no path-length limit of its own — paths are walked one
+/// component at a time. This constant is a project-level ceiling that sizes
+/// stack and heap path buffers. Buffers that hold a full path should be
+/// declared as char buf[ kFSMaxPathLen + 1 ].
+enum { kFSMaxPathLen = 511 };
+
 // ============================================================================
 // Result codes
 // ============================================================================

@@ -85,7 +85,17 @@ void OCInitModule( void ) {
     for ( uint8_t i = 0; i < OvenControllerCount; i++ ) {
         instances[ i ].id           = (OvenControllerID)i;
         instances[ i ].statusHandle = osEventFlagsNew( NULL );
+        osEventFlagsSet( DeviceStatusFlagsHandle, BIT( kReadyBit[ i ] ) );
     }
+#if FEATURE_HEATER_TOP
+    osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagHeaterTopReady    ) );
+#endif // FEATURE_HEATER_TOP
+#if FEATURE_HEATER_REAR
+    osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagHeaterRearReady   ) );
+#endif // FEATURE_HEATER_REAR
+#if FEATURE_HEATER_BOTTOM
+    osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagHeaterBottomReady ) );
+#endif // FEATURE_HEATER_BOTTOM
 }
 
 /// @brief Open a handle to a specific oven controller instance.
@@ -101,15 +111,12 @@ OvenControllerRef OCOpen( OvenControllerID id ) {
     if ( !( osEventFlagsGet( inst->statusHandle ) & BIT( FlagOvenControllerStatusReady ) ) ) {
 #if FEATURE_HEATER_TOP
         inst->triacTop    = TriacOpen( TriacHeaterTop );
-        if ( inst->triacTop ) osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagHeaterTopReady ) );
 #endif // FEATURE_HEATER_TOP
 #if FEATURE_HEATER_REAR
         inst->triacRear   = TriacOpen( TriacHeaterRear );
-        if ( inst->triacRear ) osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagHeaterRearReady ) );
 #endif // FEATURE_HEATER_REAR
 #if FEATURE_HEATER_BOTTOM
         inst->triacBottom = TriacOpen( TriacHeaterBottom );
-        if ( inst->triacBottom ) osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagHeaterBottomReady ) );
 #endif // FEATURE_HEATER_BOTTOM
 #if FEATURE_THERMOCOUPLE_1
         inst->tc1         = TCOpen( Thermocouple1 );
@@ -121,8 +128,7 @@ OvenControllerRef OCOpen( OvenControllerID id ) {
         inst->thermistor  = TMOpen( ThermistorOven );
 #endif // FEATURE_THERMISTOR_OVEN
 
-        osEventFlagsSet( inst->statusHandle,      BIT( FlagOvenControllerStatusReady ) );
-        osEventFlagsSet( DeviceStatusFlagsHandle, BIT( kReadyBit[ id ] ) );
+        osEventFlagsSet( inst->statusHandle, BIT( FlagOvenControllerStatusReady ) );
     }
 
     return inst;

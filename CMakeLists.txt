@@ -78,6 +78,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/FileSystem/Src/LFSAdapter.c
     Core/Modules/FileSystem/Src/Volume.c
     Core/Modules/FileSystem/Src/FSFile.c
+    Core/Modules/FileSystem/Src/FSUtils.c
 
     # Add third-party source files directly to your target
     Middlewares/Third_Party/littlefs/lfs.c
@@ -97,7 +98,22 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Middlewares/Third_Party/littlefs
 )
 
-# 5. LINK LIBRARIES
+# 5. COMPILE DEFINITIONS
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
+    # Redirect LittleFS internal allocation to the FreeRTOS heap so all dynamic
+    # memory in the project comes from the same pool.
+    LFS_MALLOC=pvPortMalloc
+    LFS_FREE=vPortFree
+)
+
+# Force-include FreeRTOS.h before every translation unit so that pvPortMalloc
+# and vPortFree are declared before the LFS_MALLOC/LFS_FREE macros expand in
+# lfs_util.h, which is pulled in transitively by our filesystem modules.
+target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
+    $<$<COMPILE_LANGUAGE:C>:-include FreeRTOS.h>
+)
+
+# 6. LINK LIBRARIES
 target_link_libraries(${CMAKE_PROJECT_NAME}
     stm32cubemx
 )

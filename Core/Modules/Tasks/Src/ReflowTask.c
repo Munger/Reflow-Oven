@@ -10,13 +10,11 @@
 #include "SystemStatusFlags.h"
 #include "Reflow.h"
 
-static ReflowRef s_reflow;
-
 void ReflowTaskInit( void ) {
+    ReflowInitModule();
     osEventFlagsWait( SystemStatusFlagsHandle, BIT( FlagSystemInitialised ), osFlagsWaitAll | osFlagsNoClear, osWaitForever );
-    s_reflow = ReflowOpen();
 }
 
 void ReflowTaskLoop( void ) {
-    ReflowProcess( s_reflow );
+    ReflowProcess();
 }

@@ -10,8 +10,8 @@
 ///   - `DeviceStatusFlagsHandle`  — per-driver ready bits, forming `DEVICE_ALL_READY`
 ///   - `FaultFlagsHandle`         — active fault bits, forming `FAULT_ANY`
 ///
-/// Reflow execution phase flags live in `Reflow.h` / `ReflowStatusFlagsHandle`,
-/// which is owned and created by the Reflow module, not by CubeMX.
+/// Reflow execution phase flags live in `Reflow.h` / `ReflowFlagsHandle`,
+/// which is created by CubeMX alongside the other handles.
 ///
 /// Also provides the `BIT(n)` and `OS_USER_FLAGS_MASK` utility macros and the
 /// composite bitmask constants `DEVICE_ALL_READY` and `FAULT_ANY`.
@@ -40,9 +40,10 @@
 ///
 /// These bits track kernel-level lifecycle events that gate task startup.
 typedef enum {
-    FlagSystemInitialised = 0,    ///< All drivers are ready; tasks may proceed.
+    FlagSystemInitialised = 0,    ///< All modules are initialised; tasks may proceed.
     FlagInterruptsEnabled,        ///< GPIO edge interrupts have been unmasked.
     FlagSupervisorServiceRequest, ///< ManagerTask: a supervisor action is requested.
+    FlagSystemAborted,            ///< Software interrupt has fired; system is aborting.
 
     SystemFlagsCount              ///< Number of flags — must stay <= 24.
 } SystemFlagBit;
@@ -78,7 +79,6 @@ typedef enum {
     FlagOvenLightReady,          ///< Oven interior light TRIAC channel ready.  — FEATURE_OVEN_LIGHT
     FlagOvenControllerReady,     ///< Oven controller initialised and all device refs valid.
     FlagRotaryEncoderReady,      ///< Rotary encoder (AS5600) initialised and I2C ref valid. — FEATURE_ROTARY_ENCODER
-    FlagReflowEngineReady,       ///< Reflow engine opened and OvenController ref acquired.
 
     DeviceFlagsCount             ///< Number of flags — must stay <= 24.
 } DeviceFlagsBit;
@@ -219,8 +219,6 @@ typedef enum {
 #define DEVBIT_ROTARY           0UL
 #endif // FEATURE_ROTARY_ENCODER
 
-#define DEVBIT_REFLOW           BIT( FlagReflowEngineReady )
-
 /// @brief Bitmask of all device-ready bits that must be set before the system initialises.
 ///
 /// ManagerTask calls `osEventFlagsWait(DeviceStatusFlagsHandle, DEVICE_ALL_READY, ...)`
@@ -245,8 +243,7 @@ typedef enum {
     DEVBIT_HEATER_REAR         | \
     DEVBIT_HEATER_BOTTOM       | \
     DEVBIT_OVEN_LIGHT          | \
-    DEVBIT_ROTARY              | \
-    DEVBIT_REFLOW                \
+    DEVBIT_ROTARY                \
 )
 
 // ============================================================================
@@ -383,6 +380,7 @@ extern osEventFlagsId_t DeviceStatusFlagsHandle;
 
 /// @brief Active fault event flag group. Created by app_freertos.c at startup.
 extern osEventFlagsId_t FaultFlagsHandle;
+
 
 _Static_assert( SystemFlagsCount <= 24, "SystemStatusFlags out of bounds" );
 _Static_assert( DeviceFlagsCount <= 24, "DeviceStatusFlags out of bounds" );

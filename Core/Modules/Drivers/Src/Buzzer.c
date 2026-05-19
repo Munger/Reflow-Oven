@@ -24,17 +24,9 @@
 #include "tim.h"
 #include "Buzzer.h"
 
-/// @brief Private event flag group for buzzer module status.
-static osEventFlagsId_t buzzerStatus;
-
-/// @brief Internal sequencer state — tracks progress through the active melody.
-/// Declared volatile because it is written by the TIM7 ISR and read by task-level code.
-static volatile struct {
-    const Melody* currentMelody;    ///< Pointer to the melody currently being played
-    uint8_t       currentIndex;     ///< Index of the note currently playing
-    uint32_t      remainingToggles; ///< Timer ticks remaining for the current note
-    bool          isRest;           ///< True when the current note is a silent rest
-} sequencer;
+// ============================================================================
+// Pre-defined melodies
+// ============================================================================
 
 /// @brief Pre-defined melody: 31-note level-complete fanfare.
 static const struct {
@@ -81,56 +73,60 @@ static const Melody* patterns[] = {
     ( const Melody* )&levelCompleteInternal
 };
 
+// ============================================================================
+// Instance type
+// ============================================================================
+
+/// @brief Internal state for one buzzer instance.
+typedef struct BuzzerInstance {
+    osEventFlagsId_t       statusHandle;
+    volatile const Melody* currentMelody;    ///< Melody currently being played (written by task, read by ISR)
+    volatile uint8_t       currentIndex;     ///< Index of the note currently playing
+    volatile uint32_t      remainingToggles; ///< Timer ticks remaining for the current note
+} BuzzerInstance, *BuzzerInstancePtr;
+
+/// @brief All buzzer instances — indexed by BuzzerID.
+static BuzzerInstance instances[ BuzzerCount ];
+
+static void PrepareNote( BuzzerInstancePtr buzzer );
 static void TimerHandler( TIM_HandleTypeDef *htim );
 
-/// @brief Initialise the timer peripheral and GPIO, create the private status flags group.
-///
-/// Resets the sequencer state, creates the buzzerStatus event group, configures
-/// the BUZZER_EN_N GPIO to its idle-high (off) state, and registers the TIM7
-/// period-elapsed callback. Signals DeviceStatusFlagsHandle on completion.
+// ============================================================================
+// Public API
+// ============================================================================
+
+/// @brief Allocate per-instance resources and register the TIM7 callback.
 void BuzzerInitModule( void ) {
-    memset( ( void* )&sequencer, 0, sizeof( sequencer ) );
-
-    buzzerStatus = osEventFlagsNew( NULL );
-
-    HAL_GPIO_WritePin( BUZZER_EN_N_GPIO_Port, BUZZER_EN_N_Pin, GPIO_PIN_SET );
+    memset( instances, 0, sizeof( instances ) );
+    for ( uint8_t i = 0; i < BuzzerCount; i++ ) {
+        instances[ i ].statusHandle = osEventFlagsNew( NULL );
+    }
     HAL_TIM_RegisterCallback( &htim7, HAL_TIM_PERIOD_ELAPSED_CB_ID, TimerHandler );
-
-    // Internal ready flag only.
-    osEventFlagsSet( buzzerStatus, BIT( FlagBuzzerStatusReady ) );
-    // Signal system that hardware is initialized.
     osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagBuzzerReady ) );
 }
 
-/// @brief Load the next note from the current melody into the timer hardware.
+/// @brief Open a buzzer instance and perform one-time hardware initialisation.
 ///
-/// For a rest, the GPIO is left high and the toggle counter is derived from
-/// the duration divided by 10 ms. For a tone, the timer auto-reload register
-/// is set to produce the correct half-period in microseconds.
-///
-/// @note Called only from within a critical section or from TimerHandler (ISR).
-static void BuzzerPrepareNote( void ) {
-    const BuzzerTone* note = &sequencer.currentMelody->tones[ sequencer.currentIndex ];
+/// Idempotent — subsequent calls with the same @p id return the existing handle.
+BuzzerRef BuzzerOpen( BuzzerID id ) {
+    if ( id >= BuzzerCount ) return NULL;
+    BuzzerInstancePtr buzzer = &instances[ id ];
 
-    if ( note->tone == NoteRest ) {
-        sequencer.isRest = true;
-        sequencer.remainingToggles = note->durationMs / 10;
-        __HAL_TIM_SET_AUTORELOAD( &htim7, 10000 );
-    } else {
-        sequencer.isRest = false;
-        sequencer.remainingToggles = ( ( uint32_t )note->tone * note->durationMs ) / 500;
-        uint32_t period = 500000 / ( uint32_t )note->tone;
-        __HAL_TIM_SET_AUTORELOAD( &htim7, period );
+    if ( osEventFlagsGet( buzzer->statusHandle ) & BIT( FlagBuzzerStatusReady ) ) {
+        return buzzer;
     }
 
-    __HAL_TIM_SET_COUNTER( &htim7, 0 );
+    HAL_GPIO_WritePin( BUZZER_EN_N_GPIO_Port, BUZZER_EN_N_Pin, GPIO_PIN_SET );
+    osEventFlagsSet( buzzer->statusHandle, BIT( FlagBuzzerStatusReady ) );
+
+    return buzzer;
 }
 
 /// @brief Start the buzzer at a specific frequency, bypassing the sequencer.
-///
-/// Configures TIM7 for the requested frequency and starts it. The active flag
-/// is set atomically inside a critical section.
-void BuzzerStart( BuzzerFrequency frequency ) {
+void BuzzerStart( BuzzerRef buzzer, BuzzerFrequency frequency ) {
+    if ( buzzer == NULL ) return;
+    BuzzerInstancePtr inst = (BuzzerInstancePtr)buzzer;
+
     if ( frequency == NoteRest ) {
         taskENTER_CRITICAL();
         HAL_GPIO_WritePin( BUZZER_EN_N_GPIO_Port, BUZZER_EN_N_Pin, GPIO_PIN_SET );
@@ -141,25 +137,26 @@ void BuzzerStart( BuzzerFrequency frequency ) {
     uint32_t period = 500000 / ( uint32_t )frequency;
     taskENTER_CRITICAL();
     __HAL_TIM_SET_AUTORELOAD( &htim7, period );
-    osEventFlagsSet( buzzerStatus, BIT( FlagBuzzerStatusActive ) );
+    osEventFlagsSet( inst->statusHandle, BIT( FlagBuzzerStatusActive ) );
     HAL_TIM_Base_Start_IT( &htim7 );
     taskEXIT_CRITICAL();
 }
 
-/// @brief Immediately stop the PWM signal and de-assert the BUZZER_EN_N GPIO.
-///
-/// The active status flag is cleared atomically inside a critical section.
-void BuzzerStop( void ) {
+/// @brief Immediately stop the PWM signal and de-assert the output GPIO.
+void BuzzerStop( BuzzerRef buzzer ) {
+    if ( buzzer == NULL ) return;
+    BuzzerInstancePtr inst = (BuzzerInstancePtr)buzzer;
+
     taskENTER_CRITICAL();
     HAL_TIM_Base_Stop_IT( &htim7 );
     HAL_GPIO_WritePin( BUZZER_EN_N_GPIO_Port, BUZZER_EN_N_Pin, GPIO_PIN_SET );
-    osEventFlagsClear( buzzerStatus, BIT( FlagBuzzerStatusActive ) );
+    osEventFlagsClear( inst->statusHandle, BIT( FlagBuzzerStatusActive ) );
     taskEXIT_CRITICAL();
 }
 
 /// @brief Queue a pre-defined melodic pattern for asynchronous ISR-driven playback.
-void BuzzerPlay( const BuzzerPattern pattern ) {
-    BuzzerPlayMelody( patterns[ ( uint8_t )pattern ] );
+void BuzzerPlay( BuzzerRef buzzer, BuzzerPattern pattern ) {
+    BuzzerPlayMelody( buzzer, patterns[ ( uint8_t )pattern ] );
 }
 
 /// @brief Queue a custom melody for asynchronous ISR-driven playback.
@@ -167,24 +164,60 @@ void BuzzerPlay( const BuzzerPattern pattern ) {
 /// Loads the melody into the sequencer and starts TIM7. The function returns
 /// immediately; the ISR advances through notes autonomously.
 /// @warning The melody pointer must remain valid for the entire playback duration.
-void BuzzerPlayMelody( const Melody* melody ) {
-    if ( !melody || melody->length == 0 ) return;
+void BuzzerPlayMelody( BuzzerRef buzzer, const Melody* melody ) {
+    if ( buzzer == NULL || !melody || melody->length == 0 ) return;
+    BuzzerInstancePtr inst = (BuzzerInstancePtr)buzzer;
 
     taskENTER_CRITICAL();
-    sequencer.currentMelody = melody;
-    sequencer.currentIndex  = 0;
-    BuzzerPrepareNote();
-    osEventFlagsSet( buzzerStatus, BIT( FlagBuzzerStatusActive ) );
+    inst->currentMelody = melody;
+    inst->currentIndex  = 0;
+    PrepareNote( inst );
+    osEventFlagsSet( inst->statusHandle, BIT( FlagBuzzerStatusActive ) );
     HAL_TIM_Base_Start_IT( &htim7 );
     taskEXIT_CRITICAL();
 }
 
-/// @brief Task-loop tick for the buzzer module.
-/// @note Intentionally empty — all buzzer sequencing is handled by the TIM7 ISR.
+/// @brief Task-loop tick for the buzzer module (currently a no-op; sequencing is ISR-driven).
 void BuzzerProcess( void ) {
 }
 
-/// @brief TIM7 period-elapsed callback — advances the melody sequencer.
+/// @brief Return the current bitmask from the instance status flags.
+uint32_t BuzzerGetStatus( BuzzerRef buzzer ) {
+    if ( buzzer == NULL ) return 0;
+    return osEventFlagsGet( ( (BuzzerInstancePtr)buzzer )->statusHandle );
+}
+
+// ============================================================================
+// Internal
+// ============================================================================
+
+/// @brief Load the next note from the current melody into the timer hardware.
+///
+/// For a rest, the GPIO is left high and the toggle counter is derived from
+/// the duration divided by 10 ms. For a tone, the timer auto-reload register
+/// is set to produce the correct half-period in microseconds.
+///
+/// @note Called only from within a critical section or from TimerHandler (ISR).
+static void PrepareNote( BuzzerInstancePtr buzzer ) {
+    const Melody*     melody = (const Melody*)buzzer->currentMelody;
+    uint8_t           index  = buzzer->currentIndex;
+    const BuzzerTone* note   = &melody->tones[ index ];
+
+    if ( note->tone == NoteRest ) {
+        osEventFlagsSet( buzzer->statusHandle, BIT( FlagBuzzerStatusRest ) );
+        buzzer->remainingToggles = note->durationMs / 10;
+        __HAL_TIM_SET_AUTORELOAD( &htim7, 10000 );
+    } else {
+        osEventFlagsClear( buzzer->statusHandle, BIT( FlagBuzzerStatusRest ) );
+        buzzer->remainingToggles = ( ( uint32_t )note->tone * note->durationMs ) / 500;
+        uint32_t period = 500000 / ( uint32_t )note->tone;
+        __HAL_TIM_SET_AUTORELOAD( &htim7, period );
+    }
+
+    __HAL_TIM_SET_COUNTER( &htim7, 0 );
+}
+
+/// @brief TIM7 period-elapsed callback — advances the melody sequencer for Buzzer1.
 ///
 /// On each tick, toggles or silences the GPIO depending on the current note
 /// type, decrements the remaining-toggle counter, and when it reaches zero
@@ -195,35 +228,30 @@ void BuzzerProcess( void ) {
 static void TimerHandler( TIM_HandleTypeDef *htim ) {
     UNUSED( htim );
 
-    uint32_t flags = osEventFlagsGet( buzzerStatus );
+    BuzzerInstancePtr inst = &instances[ Buzzer1 ];
+
+    uint32_t flags = osEventFlagsGet( inst->statusHandle );
     if ( !( flags & BIT( FlagBuzzerStatusActive ) ) ) return;
 
-    if ( !sequencer.isRest ) {
+    if ( !( flags & BIT( FlagBuzzerStatusRest ) ) ) {
         HAL_GPIO_TogglePin( BUZZER_EN_N_GPIO_Port, BUZZER_EN_N_Pin );
     } else {
         HAL_GPIO_WritePin( BUZZER_EN_N_GPIO_Port, BUZZER_EN_N_Pin, GPIO_PIN_SET );
     }
 
-    if ( sequencer.remainingToggles > 0 ) {
-        sequencer.remainingToggles--;
+    if ( inst->remainingToggles > 0 ) {
+        inst->remainingToggles--;
     } else {
-        sequencer.currentIndex++;
+        inst->currentIndex++;
 
-        if ( sequencer.currentIndex < sequencer.currentMelody->length ) {
-            BuzzerPrepareNote();
+        if ( inst->currentIndex < inst->currentMelody->length ) {
+            PrepareNote( inst );
         } else {
             HAL_TIM_Base_Stop_IT( &htim7 );
             HAL_GPIO_WritePin( BUZZER_EN_N_GPIO_Port, BUZZER_EN_N_Pin, GPIO_PIN_SET );
-
-            osEventFlagsClear( buzzerStatus, BIT( FlagBuzzerStatusActive ) );
+            osEventFlagsClear( inst->statusHandle, BIT( FlagBuzzerStatusActive ) );
         }
     }
-}
-
-/// @brief Return the current status bitmask from the private buzzerStatus flags.
-/// @return Bitmask of BuzzerStatusBit flags; safe to call from any task context.
-uint32_t BuzzerGetStatus( void ) {
-    return osEventFlagsGet( buzzerStatus );
 }
 
 #endif // FEATURE_BUZZER

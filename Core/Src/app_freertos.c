@@ -39,6 +39,7 @@
 
 /* Private typedef -----------------------------------------------------------*/
 typedef StaticSemaphore_t osStaticSemaphoreDef_t;
+typedef StaticEventGroup_t osStaticEventGroupDef_t;
 /* USER CODE BEGIN PTD */
 
 /* USER CODE END PTD */
@@ -135,18 +136,35 @@ const osSemaphoreAttr_t CRCSem_attributes = {
 };
 /* Definitions for SystemStatusFlags */
 osEventFlagsId_t SystemStatusFlagsHandle;
+osStaticEventGroupDef_t SystemStatusFlagsControlBlock;
 const osEventFlagsAttr_t SystemStatusFlags_attributes = {
-  .name = "SystemStatusFlags"
+  .name = "SystemStatusFlags",
+  .cb_mem = &SystemStatusFlagsControlBlock,
+  .cb_size = sizeof(SystemStatusFlagsControlBlock),
 };
 /* Definitions for DeviceStatusFlags */
 osEventFlagsId_t DeviceStatusFlagsHandle;
+osStaticEventGroupDef_t DeviceStatusFlagsControlBlock;
 const osEventFlagsAttr_t DeviceStatusFlags_attributes = {
-  .name = "DeviceStatusFlags"
+  .name = "DeviceStatusFlags",
+  .cb_mem = &DeviceStatusFlagsControlBlock,
+  .cb_size = sizeof(DeviceStatusFlagsControlBlock),
 };
 /* Definitions for FaultFlags */
 osEventFlagsId_t FaultFlagsHandle;
+osStaticEventGroupDef_t FaultFlagsControlBlock;
 const osEventFlagsAttr_t FaultFlags_attributes = {
-  .name = "FaultFlags"
+  .name = "FaultFlags",
+  .cb_mem = &FaultFlagsControlBlock,
+  .cb_size = sizeof(FaultFlagsControlBlock),
+};
+/* Definitions for ReflowFlags */
+osEventFlagsId_t ReflowFlagsHandle;
+osStaticEventGroupDef_t SWIReasonFlagsControlBlock;
+const osEventFlagsAttr_t ReflowFlags_attributes = {
+  .name = "ReflowFlags",
+  .cb_mem = &SWIReasonFlagsControlBlock,
+  .cb_size = sizeof(SWIReasonFlagsControlBlock),
 };
 
 /* Private function prototypes -----------------------------------------------*/
@@ -251,8 +269,11 @@ void MX_FREERTOS_Init(void) {
   /* creation of FaultFlags */
   FaultFlagsHandle = osEventFlagsNew(&FaultFlags_attributes);
 
+  /* creation of ReflowFlags */
+  ReflowFlagsHandle = osEventFlagsNew(&ReflowFlags_attributes);
+
   /* USER CODE BEGIN RTOS_EVENTS */
-    /* add events, ... */
+  ReflowFlagsHandle = osEventFlagsNew(&ReflowFlags_attributes);
   /* USER CODE END RTOS_EVENTS */
 
 }

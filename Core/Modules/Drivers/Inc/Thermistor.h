@@ -34,6 +34,7 @@ typedef enum {
     FlagTMStatusOpenCircuit,         ///< ADC value near the supply rail — probe disconnected
     FlagTMStatusShortCircuit,        ///< ADC value near ground — probe shorted
     FlagTMStatusHardwareFault,       ///< Internal ADC or DMA peripheral error
+    FlagTMInvertedDivider,           ///< Divider network is inverted — swap open/short fault polarity
 
     TMFlagsCount
 } TMStatusBit;

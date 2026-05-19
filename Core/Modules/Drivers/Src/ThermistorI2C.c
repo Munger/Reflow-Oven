@@ -64,6 +64,7 @@ void TMI2CInitModule( void ) {
     memset( instances, 0, sizeof( instances ) );
     instances[ ThermistorI2C1 ].id           = ThermistorI2C1;
     instances[ ThermistorI2C1 ].statusHandle = osEventFlagsNew( NULL );
+    osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagThermistorHeatsinkReady ) );
 }
 
 /// @brief Open a handle to a specific thermistor instance.
@@ -82,7 +83,6 @@ ThermistorI2CRef TMI2COpen( ThermistorI2CID id, I2CRef i2c, NTCEntryPtr ntcTable
         tm->i2c      = i2c;
         tm->ntcTable = ntcTable;
         osEventFlagsSet( tm->statusHandle, BIT( FlagTMI2CStatusReady ) );
-        osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagThermistorHeatsinkReady ) );
     }
     return tm;
 }

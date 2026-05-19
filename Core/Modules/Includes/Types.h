@@ -35,6 +35,13 @@
 /// point while retaining three decimal places of precision.
 typedef int32_t Temperature;
 
+/// @brief Ramp rate in milli-degrees Celsius per second.
+///
+/// A value of 2000 represents 2.000 °C/s. Positive = heating, negative = cooling.
+/// Stored as milli-°C/s so it has the same scale as Temperature and requires
+/// no floating-point arithmetic.
+typedef int32_t RampRate;
+
 /// @brief Rotational speed in Revolutions Per Minute.
 typedef uint16_t Rpm;
 

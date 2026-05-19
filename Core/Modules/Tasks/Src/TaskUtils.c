@@ -152,6 +152,15 @@ __weak uint32_t ulTaskNotifyTake( BaseType_t xClearCountOnExit, TickType_t xTick
 }
 #endif
 
+#if FREE_RTOS
+
+bool WaitForFlags( osEventFlagsId_t handle, uint32_t bits, uint32_t ms ) {
+    uint32_t result = osEventFlagsWait( handle, bits, osFlagsWaitAny | osFlagsNoClear, ms );
+    return ( result & bits ) != 0;
+}
+
+#endif // FREE_RTOS
+
 #ifndef vPortYieldFromISR
 /// @brief Bare-metal stub for vPortYieldFromISR — no-op.
 ///

@@ -48,14 +48,17 @@ _Static_assert( FlashStatusFlagsCount <= 24, "FlashStatusFlags out of bounds" );
 /// @brief Opaque handle to a flash device instance.
 typedef struct FlashInstance* FlashRef;
 
+/// @brief Allocate per-instance status event flag groups and signal module readiness.
+///
+/// Sets FlagFlashReady in DeviceStatusFlagsHandle. Hardware verification (JEDEC ID,
+/// 4-byte mode) happens in FlashOpen(); errors there go to FaultFlagsHandle.
+void FlashInitModule( void );
+
 /// @brief Open a handle to a flash device and perform one-time hardware initialisation.
 ///
-/// Verifies the JEDEC ID, enters 4-byte address mode, and sets the Ready flag.
-/// On first call for a given ID the device is configured; subsequent calls with
-/// the same ID return the existing instance without re-initialising.
-///
-/// Sets FlagFlashReady in DeviceStatusFlagsHandle on success, or FlagFlashFault
-/// in FaultFlagsHandle on JEDEC mismatch or SPI error.
+/// Verifies the JEDEC ID and enters 4-byte address mode. Sets FlagFlashStatusReady
+/// on success, or raises FlagFlashFault in FaultFlagsHandle on JEDEC mismatch or
+/// SPI error. Idempotent — subsequent calls return the existing instance.
 ///
 /// @param[in] id   Flash device identifier.
 /// @param[in] spi  SPI bus handle returned by SPIOpen().

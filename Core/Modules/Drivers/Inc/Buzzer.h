@@ -54,10 +54,11 @@ typedef enum {
 } BuzzerPattern;
 
 /// @brief Fault and status flag bit positions for the buzzer module.
-/// These map 1:1 to the bits in the private buzzerStatus event flag group.
+/// These map 1:1 to the bits in the per-instance status event flag group.
 typedef enum {
     FlagBuzzerStatusReady = 0,      ///< Hardware / timer initialised
     FlagBuzzerStatusActive,          ///< Currently playing a note or melody
+    FlagBuzzerStatusRest,            ///< Current sequencer note is a silent rest
     FlagBuzzerStatusMuted,           ///< Software mute is active
     FlagBuzzerStatusHardwareFault,   ///< Placeholder for future diagnostic hardware
 
@@ -79,28 +80,53 @@ typedef struct Melody {
     BuzzerTone tones[]; ///< Flexible array member for the tone sequence
 } Melody, *MelodyPtr;
 
-/// @brief Initialise the timer peripheral and GPIO for PWM output and prime the sequencer.
+/// @brief Logical identifiers for buzzer instances.
+typedef enum {
+    Buzzer1 = 0, ///< Primary piezo buzzer
+    BuzzerCount
+} BuzzerID;
+
+/// @brief Opaque handle to a buzzer instance.
+typedef struct BuzzerInstance* BuzzerRef;
+
+/// @brief Allocate per-instance resources and register the timer callback.
 void BuzzerInitModule( void );
 
-/// @brief Start the buzzer immediately at the specified note frequency.
-/// @param[in] frequency Frequency in Hz; pass NoteRest to silence without stopping the timer.
-void BuzzerStart( BuzzerFrequency frequency );
+/// @brief Open a buzzer instance and perform one-time hardware initialisation.
+///
+/// Idempotent — subsequent calls with the same @p id return the existing handle.
+///
+/// @param[in] id  Buzzer instance identifier.
+/// @return Handle to the instance; NULL if @p id is out of range.
+BuzzerRef BuzzerOpen( BuzzerID id );
+
+/// @brief Start the buzzer at a specific frequency, bypassing the sequencer.
+/// @param[in] buzzer     Handle returned by BuzzerOpen().
+/// @param[in] frequency  Frequency in Hz; pass NoteRest to silence without stopping the timer.
+void BuzzerStart( BuzzerRef buzzer, BuzzerFrequency frequency );
 
 /// @brief Immediately stop the PWM signal and de-assert the output GPIO.
-void BuzzerStop( void );
+/// @param[in] buzzer  Handle returned by BuzzerOpen().
+void BuzzerStop( BuzzerRef buzzer );
 
 /// @brief Queue a pre-defined melodic pattern for asynchronous playback.
-/// @param[in] pattern Pattern identifier from BuzzerPattern.
-void BuzzerPlay( const BuzzerPattern pattern );
+/// @param[in] buzzer   Handle returned by BuzzerOpen().
+/// @param[in] pattern  Pattern identifier from BuzzerPattern.
+void BuzzerPlay( BuzzerRef buzzer, BuzzerPattern pattern );
 
 /// @brief Queue a custom melody sequence for asynchronous playback.
-/// @param[in] melody Pointer to a Melody struct with at least one tone entry.
-/// @note Playback is ISR-driven; this function returns immediately.
-void BuzzerPlayMelody( const Melody* melody );
+///
+/// Playback is ISR-driven; this function returns immediately.
+///
+/// @param[in] buzzer  Handle returned by BuzzerOpen().
+/// @param[in] melody  Pointer to a Melody struct with at least one tone entry.
+/// @warning The melody pointer must remain valid for the entire playback duration.
+void BuzzerPlayMelody( BuzzerRef buzzer, const Melody* melody );
 
-/// @brief Return the current bitmask from the internal buzzer status flags.
+/// @brief Return the current bitmask from the instance status flags.
+/// @param[in] buzzer  Handle returned by BuzzerOpen().
 /// @return Bitmask of BuzzerStatusBit flags; safe to call from any task context.
-uint32_t BuzzerGetStatus( void );
+uint32_t BuzzerGetStatus( BuzzerRef buzzer );
 
 /// @brief Task-loop tick for the buzzer module (currently a no-op; sequencing is ISR-driven).
 void BuzzerProcess( void );

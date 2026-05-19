@@ -87,6 +87,7 @@ void USBPDInitModule( void ) {
 
     LL_UCPD_Enable( UCPD1 );
     HAL_GPIO_WritePin( PD_SRC_PON_GPIO_Port, PD_SRC_PON_Pin, GPIO_PIN_RESET );
+    osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagUSBPDReady ) );
 }
 
 /// @brief Open a handle to a specific USBPD instance and configure the TCPP03.
@@ -108,7 +109,6 @@ USBPDRef USBPDOpen( USBPDID id, I2CRef i2c ) {
         uint8_t ovp = 0x24;
         I2CWriteSync( i2c, kTcpp03Addr, kTcpp03OvpSet, I2C_MEMADD_SIZE_8BIT, &ovp, 1, 100 );
         osEventFlagsSet( inst->statusHandle, BIT( FlagUSBPDModuleReady ) );
-        osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagUSBPDReady ) );
     }
     return inst;
 }

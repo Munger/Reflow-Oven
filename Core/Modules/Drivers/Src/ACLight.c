@@ -28,14 +28,15 @@
 /// @brief Burst window size in AC half-cycles (200 ms at 50 Hz, 167 ms at 60 Hz).
 static const uint8_t kBurstWindow = 20U;
 
-/// @brief Internal state for the single AC light instance.
+/// @brief Internal state for one AC light instance.
 typedef struct ACLightInstance {
     TriacRef         triac;           ///< TRIAC channel handle acquired at ACLightOpen()
     osEventFlagsId_t statusHandle;    ///< Per-instance event flag group
     Permille         requestedPower;  ///< Last power requested via ACLightSetPower()
 } ACLightInstance, *ACLightInstancePtr;
 
-static ACLightInstance instance;
+/// @brief All AC light instances — indexed by ACLightID.
+static ACLightInstance instances[ ACLightCount ];
 
 static void DriveAtPower( ACLightInstancePtr light, Permille power );
 
@@ -43,26 +44,28 @@ static void DriveAtPower( ACLightInstancePtr light, Permille power );
 // Public API
 // ============================================================================
 
-/// @brief Allocate instance resources. Does not access hardware.
+/// @brief Allocate per-instance resources. Does not access hardware.
 void ACLightInitModule( void ) {
-    memset( &instance, 0, sizeof( instance ) );
-    instance.statusHandle = osEventFlagsNew( NULL );
+    memset( instances, 0, sizeof( instances ) );
+    for ( uint8_t i = 0; i < ACLightCount; i++ ) {
+        instances[ i ].statusHandle = osEventFlagsNew( NULL );
+    }
+    osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagOvenLightReady ) );
 }
 
-/// @brief Open the AC light and acquire its TRIAC channel.
+/// @brief Open an AC light instance and acquire its TRIAC channel.
 ///
-/// On first call, opens TriacLight, sets FlagACLightStatusReady, and raises
-/// FlagOvenLightReady in DeviceStatusFlagsHandle. Subsequent calls are no-ops.
-///
-/// @return Handle to the instance, or NULL on internal error.
-ACLightRef ACLightOpen( void ) {
-    if ( instance.triac == NULL ) {
-        instance.triac = TriacOpen( TriacLight );
-        osEventFlagsSet( instance.statusHandle,   BIT( FlagACLightStatusReady ) );
-        osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagOvenLightReady     ) );
-    }
+/// Idempotent — subsequent calls with the same @p id return the existing handle.
+ACLightRef ACLightOpen( ACLightID id ) {
+    if ( id >= ACLightCount ) return NULL;
+    ACLightInstancePtr light = &instances[ id ];
 
-    return &instance;
+    if ( light->triac != NULL ) return light;
+
+    light->triac = TriacOpen( TriacLight );
+    osEventFlagsSet( light->statusHandle, BIT( FlagACLightStatusReady ) );
+
+    return light;
 }
 
 /// @brief Queue a power request; applied to the TRIAC by ACLightProcess() on the next tick.
@@ -72,25 +75,25 @@ ACLightRef ACLightOpen( void ) {
 /// written inside a critical section.
 void ACLightSetPower( ACLightRef light, Permille power ) {
     if ( light == NULL ) return;
+    ACLightInstancePtr inst = (ACLightInstancePtr)light;
 
-    uint32_t flags = osEventFlagsGet( instance.statusHandle );
-    if ( !( flags & BIT( FlagACLightStatusReady ) ) ) return;
+    if ( !( osEventFlagsGet( inst->statusHandle ) & BIT( FlagACLightStatusReady ) ) ) return;
 
     Permille clamped = ( power > 1000 ) ? 1000 : power;
 
     taskENTER_CRITICAL();
-    instance.requestedPower = clamped;
+    inst->requestedPower = clamped;
     taskEXIT_CRITICAL();
-    osEventFlagsSet( instance.statusHandle, BIT( FlagACLightPowerPending ) );
+    osEventFlagsSet( inst->statusHandle, BIT( FlagACLightPowerPending ) );
 }
 
 /// @brief Return the full status bitmask for the light instance.
 uint32_t ACLightGetStatus( ACLightRef light ) {
     if ( light == NULL ) return BIT( FlagACLightStatusHardwareFault );
-    return osEventFlagsGet( instance.statusHandle );
+    return osEventFlagsGet( ( (ACLightInstancePtr)light )->statusHandle );
 }
 
-/// @brief Apply any pending power command and update status flags.
+/// @brief Apply any pending power command and update status flags for all instances.
 ///
 /// Checks FlagACLightPowerPending each tick. If set, clears the flag, drives the
 /// TRIAC at the requested power, then reads back the TRIAC status. A
@@ -99,28 +102,31 @@ uint32_t ACLightGetStatus( ACLightRef light ) {
 ///
 /// @warning Do not call from ISR context.
 void ACLightProcess( void ) {
-    if ( instance.triac == NULL ) return;
+    for ( uint8_t i = 0; i < ACLightCount; i++ ) {
+        ACLightInstancePtr inst = &instances[ i ];
 
-    uint32_t flags = osEventFlagsGet( instance.statusHandle );
-    if ( !( flags & BIT( FlagACLightStatusReady ) ) ) return;
+        if ( inst->triac == NULL ) continue;
 
-    if ( !( flags & BIT( FlagACLightPowerPending ) ) ) return;
+        uint32_t flags = osEventFlagsGet( inst->statusHandle );
+        if ( !( flags & BIT( FlagACLightStatusReady   ) ) ) continue;
+        if ( !( flags & BIT( FlagACLightPowerPending  ) ) ) continue;
 
-    osEventFlagsClear( instance.statusHandle, BIT( FlagACLightPowerPending ) );
-    DriveAtPower( &instance, instance.requestedPower );
+        osEventFlagsClear( inst->statusHandle, BIT( FlagACLightPowerPending ) );
+        DriveAtPower( inst, inst->requestedPower );
 
-    if ( TriacGetStatus( instance.triac ) & BIT( FlagTriacStatusConfigError ) ) {
-        osEventFlagsSet( instance.statusHandle, BIT( FlagACLightStatusHardwareFault ) );
-        osEventFlagsSet( FaultFlagsHandle,      BIT( FlagOvenLightFault             ) );
-    } else {
-        osEventFlagsClear( instance.statusHandle, BIT( FlagACLightStatusHardwareFault ) );
-        osEventFlagsClear( FaultFlagsHandle,      BIT( FlagOvenLightFault             ) );
-    }
+        if ( TriacGetStatus( inst->triac ) & BIT( FlagTriacStatusConfigError ) ) {
+            osEventFlagsSet( inst->statusHandle, BIT( FlagACLightStatusHardwareFault ) );
+            osEventFlagsSet( FaultFlagsHandle,   BIT( FlagOvenLightFault             ) );
+        } else {
+            osEventFlagsClear( inst->statusHandle, BIT( FlagACLightStatusHardwareFault ) );
+            osEventFlagsClear( FaultFlagsHandle,   BIT( FlagOvenLightFault             ) );
+        }
 
-    if ( instance.requestedPower > 0 ) {
-        osEventFlagsSet( instance.statusHandle, BIT( FlagACLightStatusOn ) );
-    } else {
-        osEventFlagsClear( instance.statusHandle, BIT( FlagACLightStatusOn ) );
+        if ( inst->requestedPower > 0 ) {
+            osEventFlagsSet( inst->statusHandle, BIT( FlagACLightStatusOn ) );
+        } else {
+            osEventFlagsClear( inst->statusHandle, BIT( FlagACLightStatusOn ) );
+        }
     }
 }
 

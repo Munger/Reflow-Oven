@@ -15,6 +15,10 @@
 
 #include "Features.h"
 
+/// @brief Sentinel value for encoderID meaning "no rotary encoder fitted".
+///        Always defined regardless of FEATURE_ROTARY_ENCODER.
+#define kRotaryEncoderNone  0xFFu
+
 #if FEATURE_ROTARY_ENCODER
 
 #include <stdbool.h>
@@ -47,8 +51,8 @@ typedef enum {
 
 _Static_assert( REFlagsCount <= 24, "OvenFanStatusFlags out of bounds" );
 
-/// @brief Opaque handle to the singleton rotary encoder instance.
-typedef struct RotaryEncoder* RotaryEncoderRef;
+/// @brief Opaque handle to a rotary encoder instance.
+typedef struct RotaryEncoderInstance* RotaryEncoderRef;
 
 /// @brief Allocate per-instance resources and initialise the tick counter.
 void             REInitModule( void );
@@ -74,9 +78,10 @@ RotaryEncoderRef REGetRef( RotaryEncoderID id );
 /// @note Returns a cached value computed by REProcess() — safe to call from any task context.
 Rpm              REGetVelocity( RotaryEncoderRef encoder );
 
-/// @brief Return the full status bitmask from the private ovenFanStatus flags.
-/// @return Bitmask of REStatusBit flags; safe to call from any task context.
-uint32_t         REGetStatus( void );
+/// @brief Return the full status bitmask for an encoder instance.
+/// @param[in] encoder Handle returned by REOpen().
+/// @return Bitmask of REStatusBit flags; 0 if @p encoder is NULL.
+uint32_t         REGetStatus( RotaryEncoderRef encoder );
 
 /// @brief Drive the I2C state machine, update velocity, and update status flags.
 /// @warning All I2C hardware access occurs here. Do not call from ISR context.

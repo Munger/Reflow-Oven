@@ -16,6 +16,7 @@
 
 #include "USBPDTask.h"
 #include "SystemStatusFlags.h"
+#include "I2CManager.h"
 #include "USBPowerDelivery.h"
 
 enum { kUSBPDTickMs = 10 };
@@ -23,6 +24,7 @@ enum { kUSBPDTickMs = 10 };
 void USBPDTaskInit( void ) {
     osEventFlagsWait( SystemStatusFlagsHandle, BIT( FlagSystemInitialised ),
                       osFlagsWaitAll | osFlagsNoClear, osWaitForever );
+    USBPDOpen( USBPD1, I2COpen( I2CBus1 ) );
 }
 
 void USBPDTaskLoop( void ) {

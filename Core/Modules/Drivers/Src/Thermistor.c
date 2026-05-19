@@ -13,12 +13,13 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
-#include <string.h>
-#include <stdlib.h>
 
 #include "Features.h"
 
 #if FEATURE_THERMISTORS
+
+#include <string.h>
+#include <stdlib.h>
 
 #include "Thermistor.h"
 #include "adc.h"
@@ -76,12 +77,11 @@ static const Temperature OvenTable[] = {
 
 /// @brief Internal per-channel thermistor state.
 typedef struct Thermistor {
-    ThermistorID        id;              ///< Channel identifier
-    uint8_t             bufferIndex;     ///< Index into AdcDataBuffer for this channel
-    osEventFlagsId_t    flags;           ///< Private event flag group for this instance
-    uint32_t            globalFaultBit;  ///< BIT(FlagXxx) to set/clear in FaultFlagsHandle
-    const Temperature*  table;           ///< Linearisation lookup table for this channel
-    bool                invertedDivider; ///< True for oven (high ADC = short, low ADC = open)
+    ThermistorID        id;             ///< Channel identifier
+    uint8_t             bufferIndex;    ///< Index into AdcDataBuffer for this channel
+    osEventFlagsId_t    flags;          ///< Per-instance event flags; FlagTMInvertedDivider set at init
+    uint32_t            globalFaultBit; ///< BIT(FlagXxx) to set/clear in FaultFlagsHandle
+    const Temperature*  table;          ///< Linearisation lookup table for this channel
 } Thermistor, *ThermistorPtr;
 
 /// @brief Thermistor instance array — one slot per enabled channel, no holes.
@@ -92,17 +92,17 @@ static Thermistor instances[ ThermistorCount ] = {
 #if FEATURE_THERMISTOR_CJT_1
     [ ThermistorCJT1 ] = { .id = ThermistorCJT1, .bufferIndex = ThermistorCJT1,
                             .globalFaultBit = BIT( FlagThermistorCJT1Fault ),
-                            .table = CjtTable, .invertedDivider = false },
+                            .table = CjtTable },
 #endif // FEATURE_THERMISTOR_CJT_1
 #if FEATURE_THERMISTOR_CJT_2
     [ ThermistorCJT2 ] = { .id = ThermistorCJT2, .bufferIndex = ThermistorCJT2,
                             .globalFaultBit = BIT( FlagThermistorCJT2Fault ),
-                            .table = CjtTable, .invertedDivider = false },
+                            .table = CjtTable },
 #endif // FEATURE_THERMISTOR_CJT_2
 #if FEATURE_THERMISTOR_OVEN
     [ ThermistorOven ] = { .id = ThermistorOven, .bufferIndex = ThermistorOven,
                             .globalFaultBit = BIT( FlagThermistorOvenFault ),
-                            .table = OvenTable, .invertedDivider = true },
+                            .table = OvenTable },
 #endif // FEATURE_THERMISTOR_OVEN
 };
 
@@ -122,18 +122,16 @@ static const uint8_t kThermistorReadyBit[ ThermistorCount ] = {
 /// @brief Create per-channel RTOS flag groups and start the ADC DMA.
 ///
 /// Static instance data (IDs, buffer indices, fault bits) is set at compile time.
-/// Ready flags are set per-channel in TMOpen() when a caller acquires a handle.
+/// Ready flags and the inverted-divider configuration are applied here at init.
 void TMInitModule( void ) {
     pAdcHandle = &ADC1Handle;
 
-#if FEATURE_THERMISTOR_CJT_1
-    instances[ ThermistorCJT1 ].flags = osEventFlagsNew( NULL );
-#endif // FEATURE_THERMISTOR_CJT_1
-#if FEATURE_THERMISTOR_CJT_2
-    instances[ ThermistorCJT2 ].flags = osEventFlagsNew( NULL );
-#endif // FEATURE_THERMISTOR_CJT_2
+    for ( uint8_t i = 0; i < ThermistorCount; i++ ) {
+        instances[ i ].flags = osEventFlagsNew( NULL );
+        osEventFlagsSet( DeviceStatusFlagsHandle, BIT( kThermistorReadyBit[ i ] ) );
+    }
 #if FEATURE_THERMISTOR_OVEN
-    instances[ ThermistorOven ].flags = osEventFlagsNew( NULL );
+    osEventFlagsSet( instances[ ThermistorOven ].flags, BIT( FlagTMInvertedDivider ) );
 #endif // FEATURE_THERMISTOR_OVEN
 
     HAL_ADCEx_Calibration_Start( pAdcHandle );
@@ -143,7 +141,6 @@ void TMInitModule( void ) {
 /// @brief Open a handle to a specific thermistor channel.
 ThermistorRef TMOpen( ThermistorID thermistorID ) {
     if ( thermistorID >= ThermistorCount ) return NULL;
-    osEventFlagsSet( DeviceStatusFlagsHandle, BIT( kThermistorReadyBit[ thermistorID ] ) );
     return &instances[ thermistorID ];
 }
 
@@ -186,14 +183,14 @@ void TMProcess( void ) {
         if ( tm->flags == NULL ) continue;
         AdcRaw raw = AdcDataBuffer[ tm->bufferIndex ];
 
+        uint32_t flags = osEventFlagsGet( tm->flags );
         uint32_t set   = BIT( FlagTMStatusReady );
         uint32_t clear = BIT( FlagTMStatusHardwareFault ) | BIT( FlagTMStatusOpenCircuit ) | BIT( FlagTMStatusShortCircuit );
 
         if ( hwError ) {
             set |= BIT( FlagTMStatusHardwareFault );
         } else {
-            // Fault polarity depends on divider topology; oven uses an inverted network.
-            if ( tm->invertedDivider ) {
+            if ( flags & BIT( FlagTMInvertedDivider ) ) {
                 if ( raw >= kFaultMarginHigh ) set |= BIT( FlagTMStatusOpenCircuit );
                 if ( raw <= kFaultMarginLow )  set |= BIT( FlagTMStatusShortCircuit );
             } else {

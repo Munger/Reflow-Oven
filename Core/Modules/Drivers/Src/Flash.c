@@ -173,35 +173,42 @@ static bool Enter4ByteMode( FlashInstancePtr flash ) {
 // Public API
 // ============================================================================
 
+/// @brief Allocate per-instance status event flag groups and signal module readiness.
+void FlashInitModule( void ) {
+    memset( instances, 0, sizeof( instances ) );
+    for ( uint8_t i = 0; i < FlashCount; i++ ) {
+        instances[ i ].id           = (FlashID)i;
+        instances[ i ].statusHandle = osEventFlagsNew( NULL );
+    }
+    osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagFlashReady ) );
+}
+
 /// @brief Open a handle to a flash device and perform one-time hardware initialisation.
 ///
-/// On first call for a given ID: verifies JEDEC ID, enters 4-byte address mode,
-/// and signals DeviceStatusFlagsHandle. Subsequent calls with the same ID return
-/// the existing instance without re-initialising.
+/// On first call for a given ID: verifies JEDEC ID and enters 4-byte address mode.
+/// Sets FlagFlashStatusReady on success; sets FlagFlashFault on hardware error.
+/// Subsequent calls with the same ID return the existing instance without re-initialising.
 FlashRef FlashOpen( FlashID id, SPIRef spi ) {
     if ( id >= FlashCount ) return NULL;
     FlashInstancePtr flash = &instances[ id ];
 
-    if ( flash->statusHandle != NULL ) return flash;  // already initialised
+    if ( flash->spi != NULL ) return flash;  // already opened
 
-    flash->id           = id;
-    flash->spi          = spi;
-    flash->statusHandle = osEventFlagsNew( NULL );
+    flash->spi = spi;
 
     if ( !VerifyJEDECID( flash ) ) {
         osEventFlagsSet( flash->statusHandle, BIT( FlagFlashStatusJEDECError ) );
-        osEventFlagsSet( FaultFlagsHandle, BIT( FlagFlashFault ) );
+        osEventFlagsSet( FaultFlagsHandle,    BIT( FlagFlashFault ) );
         return flash;
     }
 
     if ( !Enter4ByteMode( flash ) ) {
         osEventFlagsSet( flash->statusHandle, BIT( FlagFlashStatusSPIError ) );
-        osEventFlagsSet( FaultFlagsHandle, BIT( FlagFlashFault ) );
+        osEventFlagsSet( FaultFlagsHandle,    BIT( FlagFlashFault ) );
         return flash;
     }
 
     osEventFlagsSet( flash->statusHandle, BIT( FlagFlashStatusReady ) );
-    osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagFlashReady ) );
     return flash;
 }
 

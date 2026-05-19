@@ -18,6 +18,10 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "Features.h"
+
+#if FEATURE_THERMOCOUPLES
+
 #include <string.h>
 
 #include "adc.h"
@@ -25,10 +29,7 @@
 #include "SPIManager.h"   // opened internally by TCOpen()
 #include "TaskUtils.h"
 #include "Thermistor.h"
-#include "Features.h"
 #include "Thermocouple.h"
-
-#if FEATURE_THERMOCOUPLES
 
 /// @brief MAX31856 register address map.
 typedef enum {
@@ -136,9 +137,11 @@ static void TCReadRegs( ThermocoupleRef tc, MaxRegister reg, uint8_t* buffer, ui
 void TCInitModule( void ) {
 #if FEATURE_THERMOCOUPLE_1
     instances[ Thermocouple1 ].statusHandle = osEventFlagsNew( NULL );
+    osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagThermocouple1Ready ) );
 #endif // FEATURE_THERMOCOUPLE_1
 #if FEATURE_THERMOCOUPLE_2
     instances[ Thermocouple2 ].statusHandle = osEventFlagsNew( NULL );
+    osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagThermocouple2Ready ) );
 #endif // FEATURE_THERMOCOUPLE_2
 }
 
@@ -156,10 +159,9 @@ ThermocoupleRef TCOpen( ThermocoupleID thermocoupleID ) {
         if ( tc->externalCjtId != kThermistorNone ) cr0 |= (uint8_t)Cr0CjDisable;
         TCWriteReg( tc, RegCr1, Cr1TypeK );
         TCWriteReg( tc, RegCr0, cr0 );
-        osEventFlagsSet( DeviceStatusFlagsHandle, tc->globalReadyBit );
     }
 
-    if ( tc->externalCjt == NULL ) {
+    if ( tc->externalCjt == NULL && tc->externalCjtId != kThermistorNone ) {
         tc->externalCjt = TMOpen( tc->externalCjtId );
         if ( tc->externalCjt != NULL ) {
             osEventFlagsSet( tc->statusHandle, BIT( FlagTCStatusExternalCJT ) );

@@ -16,21 +16,36 @@
 #include "OvenController.h"
 #include "PowerManager.h"
 #include "SystemStatusFlags.h"
+#include "I2CManager.h"
 #include "Buzzer.h"
 #include "DCFan.h"
 #include "RotaryEncoder.h"
 #include "ACFan.h"
+#include "ACLight.h"
 #include "Thermistor.h"
 #include "ThermistorI2C.h"
 #include "Thermocouple.h"
 #include "Triac.h"
 
-/// @brief Initialise the Device task — waits for system initialisation before proceeding.
+/// @brief Initialise the Device task — waits for system initialisation then opens I2C peripherals.
 ///
-/// Blocks indefinitely on FlagSystemInitialised so that no driver Process() functions
-/// run until all drivers have been initialised by ManagerTask.
+/// Blocks on FlagSystemInitialised to ensure all modules are initialised. Then opens
+/// any I2C-connected peripherals that this task owns, supplying the bus reference they
+/// need. Hardware errors during Open() set fault flags rather than blocking startup.
 void DeviceTaskInit( void ) {
     osEventFlagsWait( SystemStatusFlagsHandle, BIT( FlagSystemInitialised ), osFlagsWaitAll | osFlagsNoClear, osWaitForever );
+
+#if FEATURE_BOARD_FAN || FEATURE_THERMISTOR_HEATSINK
+    I2CRef i2c = I2COpen( I2CBus1 );
+#endif // FEATURE_BOARD_FAN || FEATURE_THERMISTOR_HEATSINK
+
+#if FEATURE_BOARD_FAN
+    DCFanOpen( BoardCoolingFan, i2c );
+#endif // FEATURE_BOARD_FAN
+
+#if FEATURE_THERMISTOR_HEATSINK
+    TMI2COpen( ThermistorI2C1, i2c, NULL );
+#endif // FEATURE_THERMISTOR_HEATSINK
 }
 
 /// @brief Call the Process() function for every driver module in sequence.
@@ -63,5 +78,8 @@ void DeviceTaskLoop( void ) {
 #if FEATURE_OVEN_FAN
     ACFanProcess();
 #endif // FEATURE_OVEN_FAN
+#if FEATURE_OVEN_LIGHT
+    ACLightProcess();
+#endif // FEATURE_OVEN_LIGHT
     TriacProcess();
 }
