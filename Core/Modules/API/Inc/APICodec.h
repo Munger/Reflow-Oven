@@ -38,10 +38,10 @@ APIPBPtr GetNextRequest( void );
 
 /// @brief Serialise a completed APIPB response and enqueue it for USB transmission.
 ///
-/// Dispatches to JSON or CLI format based on pb->origin. Releases the payload
-/// chain; the caller is responsible for the PB itself.
+/// Dispatches to SerialiseAPI() for API_MODE_API or SerialiseCLI() for all other
+/// origins. Releases the PB and all attached payload back to their pools.
 ///
-/// @param[in] pb  Completed APIPB with status, origin, terminator, and optional payload set.
+/// @param[in] pb  APIPB to serialise and release; may be NULL.
 void     APIQueueForSend( APIPBPtr pb );
 
 #endif // APICODEC_H

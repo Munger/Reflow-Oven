@@ -38,9 +38,9 @@ typedef struct APIBufferQueue {
 
 /// @brief All API engine state — pools, queues, and diagnostics — in a single zero-able struct.
 static struct {
-    APIPB          pbStorage[ APIPB_COUNT ];
-    Payload        payloadStorage[ API_PAYLOAD_COUNT ];
-    APIBuffer      bufferStorage[ API_BUFFER_COUNT ];
+    APIPB          pbStorage[ kApiPbCount ];
+    Payload        payloadStorage[ kApiPayloadCount ];
+    APIBuffer      bufferStorage[ kApiBufferCount ];
 
     APIPBPtr       pbPool;
     PayloadPtr     payloadPool;
@@ -102,20 +102,20 @@ static void* _poolPop( void** pool, uint32_t* count, uint32_t* peak, uint32_t to
 /// invalidated; do not call after startup.
 void APICoreInit( void ) {
     memset( &engine, 0, sizeof( engine ) );
-    engine.stats.pbCount = APIPB_COUNT;
-    engine.stats.payloadCount = API_PAYLOAD_COUNT;
-    engine.stats.bufferCount = API_BUFFER_COUNT;
+    engine.stats.pbCount = kApiPbCount;
+    engine.stats.payloadCount = kApiPayloadCount;
+    engine.stats.bufferCount = kApiBufferCount;
     engine.stats.pbSize = sizeof( APIPB );
     engine.stats.payloadSize = sizeof( Payload );
     engine.stats.bufferSize = sizeof( APIBuffer );
 
-    for ( uint32_t i = 0; i < APIPB_COUNT; i++ ) {
+    for ( uint32_t i = 0; i < kApiPbCount; i++ ) {
         _poolPush( (void**)&engine.pbPool, &engine.pbStorage[ i ], &engine.stats.pbFree );
     }
-    for ( uint32_t i = 0; i < API_PAYLOAD_COUNT; i++ ) {
+    for ( uint32_t i = 0; i < kApiPayloadCount; i++ ) {
         _poolPush( (void**)&engine.payloadPool, &engine.payloadStorage[ i ], &engine.stats.payloadFree );
     }
-    for ( uint32_t i = 0; i < API_BUFFER_COUNT; i++ ) {
+    for ( uint32_t i = 0; i < kApiBufferCount; i++ ) {
         _poolPush( (void**)&engine.bufferPool, &engine.bufferStorage[ i ], &engine.stats.bufferFree );
     }
 }
@@ -130,9 +130,9 @@ void APICoreInit( void ) {
 APICoreStatsRef APICoreGetStats( void ) {
     engine.stats.inputQueued = engine.inputQueue.count;
     engine.stats.outputQueued = engine.outputQueue.count;
-    engine.stats.pbMemUsed = ( APIPB_COUNT - engine.stats.pbFree ) * sizeof( APIPB );
-    engine.stats.payloadMemUsed = ( API_PAYLOAD_COUNT - engine.stats.payloadFree ) * sizeof( Payload );
-    engine.stats.bufferMemUsed = ( API_BUFFER_COUNT - engine.stats.bufferFree ) * sizeof( APIBuffer );
+    engine.stats.pbMemUsed = ( kApiPbCount - engine.stats.pbFree ) * sizeof( APIPB );
+    engine.stats.payloadMemUsed = ( kApiPayloadCount - engine.stats.payloadFree ) * sizeof( Payload );
+    engine.stats.bufferMemUsed = ( kApiBufferCount - engine.stats.bufferFree ) * sizeof( APIBuffer );
     return (APICoreStatsRef)&engine.stats;
 }
 
@@ -145,16 +145,11 @@ APIPBQueueRef GetInputQueue( void ) { return (APIPBQueueRef)&engine.inputQueue; 
 APIBufferQueueRef GetOutputQueue( void ) { return (APIBufferQueueRef)&engine.outputQueue; }
 
 /// @brief Acquire a zeroed APIPB from the pool.
-///
-/// The origin field is preset to API_MODE_UNDETERMINED. Returns NULL if the pool
-/// is exhausted; the caller must handle the failure and must not dereference NULL.
-///
-/// @return Pointer to a clean APIPB, or NULL if none are available.
+/// @return Pointer to a clean APIPB, or NULL if the pool is exhausted.
 APIPBPtr AcquirePB( void ) {
-    APIPBPtr pb = (APIPBPtr)_poolPop( (void**)&engine.pbPool, &engine.stats.pbFree, &engine.stats.pbPeak, APIPB_COUNT );
+    APIPBPtr pb = (APIPBPtr)_poolPop( (void**)&engine.pbPool, &engine.stats.pbFree, &engine.stats.pbPeak, kApiPbCount );
     if ( pb ) {
         memset( pb, 0, APIPB_SIZE );
-        pb->origin = API_MODE_UNDETERMINED;
     }
     return pb;
 }
@@ -282,13 +277,13 @@ APIBufferPtr DequeueBuffer( APIBufferQueueRef q ) {
 ///
 /// @return Pointer to a Payload node, or NULL if none are available.
 PayloadPtr AcquirePayload( void ) {
-    return (PayloadPtr)_poolPop( (void**)&engine.payloadPool, &engine.stats.payloadFree, &engine.stats.payloadPeak, API_PAYLOAD_COUNT );
+    return (PayloadPtr)_poolPop( (void**)&engine.payloadPool, &engine.stats.payloadFree, &engine.stats.payloadPeak, kApiPayloadCount );
 }
 
 /// @brief Zero a Payload node's data array and return it to the pool.
 void ReleasePayload( PayloadPtr p ) {
     if ( p ) {
-        memset( p->data, 0, API_PAYLOAD_SIZE );
+        memset( p->data, 0, kApiPayloadSize );
         _poolPush( (void**)&engine.payloadPool, p, &engine.stats.payloadFree );
     }
 }
@@ -300,13 +295,13 @@ void ReleasePayload( PayloadPtr p ) {
 ///
 /// @return Pointer to a free APIBuffer, or NULL if none are available.
 APIBufferPtr AcquireBuffer( void ) {
-    return (APIBufferPtr)_poolPop( (void**)&engine.bufferPool, &engine.stats.bufferFree, &engine.stats.bufferPeak, API_BUFFER_COUNT );
+    return (APIBufferPtr)_poolPop( (void**)&engine.bufferPool, &engine.stats.bufferFree, &engine.stats.bufferPeak, kApiBufferCount );
 }
 
 /// @brief Zero a transmit APIBuffer and return it to the pool.
 void ReleaseBuffer( APIBufferPtr b ) {
     if ( b ) {
-        memset( b->data, 0, API_BUFFER_SIZE );
+        memset( b->data, 0, kApiBufferSize );
         b->length = 0;
         _poolPush( (void**)&engine.bufferPool, b, &engine.stats.bufferFree );
     }

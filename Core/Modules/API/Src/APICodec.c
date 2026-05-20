@@ -36,8 +36,8 @@ typedef struct {
     uint32_t   candidateCount;                     ///< Number of live route candidates.
     uint8_t    candidates[ API_ROUTE_TABLE_SIZE ]; ///< Indices into apiRouteTable still in contention.
     bool       inPayload;   ///< Match resolved with no %; remainder goes into payload chain.
-    bool       inRaw;       ///< Past the % in a pattern; characters copy into rawRequest.
-    uint32_t   rawIdx;      ///< Write index into wipPB->rawRequest.
+    bool       inRaw;       ///< Past the % in a pattern; bypasses candidate pruning.
+    uint32_t   reqIdx;      ///< Write index into wipPB->reqString.
     PayloadPtr lastPayload; ///< Tail of the payload chain being built.
     uint32_t   payloadIdx;  ///< Write index into the current payload node.
     bool       lastWasSpace;///< Used to collapse consecutive spaces into one.
@@ -109,7 +109,7 @@ static inline bool PeekIsLF( const uint8_t* data, uint32_t len, uint32_t i ) {
 /// @param[in] c  Character to append.
 /// @return true on success, false if the payload pool is exhausted.
 static inline bool AppendPayloadByte( char c ) {
-    if ( !ps.lastPayload || ps.payloadIdx >= API_PAYLOAD_SIZE - 1 ) {
+    if ( !ps.lastPayload || ps.payloadIdx >= kApiPayloadSize - 1 ) {
         PayloadPtr next = AcquirePayload();
         if ( !next ) return false;
         if ( !ps.wipPB->payload ) ps.wipPB->payload = next;
@@ -123,7 +123,7 @@ static inline bool AppendPayloadByte( char c ) {
 
 /// @brief Finalise and enqueue the current work-in-progress PB, then reset the parser.
 ///
-/// NUL-terminates the payload or rawRequest if either is open. Enqueues the PB only
+/// NUL-terminates the payload or reqString if either is open. Enqueues the PB only
 /// if a route was matched or a 404 status was set; otherwise the PB is discarded.
 ///
 /// @param[in] term  Line terminator type detected by the caller.
@@ -140,10 +140,10 @@ static void TerminateRequest( TerminatorType term ) {
     }
 
     if ( ps.inRaw ) {
-        ps.wipPB->rawRequest[ ps.rawIdx ] = '\0';
+        ps.wipPB->reqString[ ps.reqIdx ] = '\0';
     }
 
-    if ( ps.wipPB->route || ps.wipPB->status == API_STATUS_NOT_FOUND ) {
+    if ( ps.wipPB->route || ps.wipPB->status == APIStatusNotFound ) {
         EnqueuePB( GetInputQueue(), ps.wipPB );
         ps.wipPB = NULL;
     }
@@ -165,10 +165,10 @@ void ProcessStream( const uint8_t* data, uint32_t len ) {
         if ( ps.pendingCR ) {
             ps.pendingCR = false;
             if ( c == '\n' ) {
-                TerminateRequest( TypeCRLF );
+                TerminateRequest( TermCRLF );
                 continue;
             } else {
-                TerminateRequest( TypeCR );
+                TerminateRequest( TermCR );
                 // Fall through to process current byte normally
             }
         }
@@ -177,22 +177,22 @@ void ProcessStream( const uint8_t* data, uint32_t len ) {
         if ( c == '\r' ) {
             if ( PeekIsLF( data, len, i ) ) {
                 i++;                            // consume the LF
-                TerminateRequest( TypeCRLF );
+                TerminateRequest( TermCRLF );
             } else if ( i + 1 == len ) {
                 ps.pendingCR = true;            // LF may arrive in next buffer
             } else {
-                TerminateRequest( TypeCR );     // next char exists and is not LF
+                TerminateRequest( TermCR );     // next char exists and is not LF
             }
             continue;
         }
 
         if ( c == '\n' ) {
-            TerminateRequest( TypeLF );
+            TerminateRequest( TermLF );
             continue;
         }
 
         if ( c == '\0' ) {
-            TerminateRequest( TypeZero );
+            TerminateRequest( TermZero );
             continue;
         }
 
@@ -216,21 +216,25 @@ void ProcessStream( const uint8_t* data, uint32_t len ) {
             }
         }
 
-        // If match resolved and we are past the %, copy into rawRequest
+        // Capture every byte into reqString until we enter payload-only mode.
+        // Handlers later extract typed arguments via sscanf(reqString, route->pattern, ...).
+        if ( !ps.inPayload && ps.reqIdx < kApiRequestMaxLen - 1 ) {
+            ps.wipPB->reqString[ ps.reqIdx++ ] = n;
+        }
+
+        // Past the % wildcard — skip candidate pruning, handle body transition only
         if ( ps.inRaw ) {
             if ( n == '{' ) {
-                // JSON body begins: switch to payload
-                ps.wipPB->rawRequest[ ps.rawIdx ] = '\0';
+                // JSON body begins: remove '{' from reqString, feed into payload instead
+                ps.wipPB->reqString[ --ps.reqIdx ] = '\0';
                 ps.inRaw     = false;
                 ps.inPayload = true;
                 AppendPayloadByte( n );
-            } else if ( ps.rawIdx < API_REQUEST_MAX_LEN - 1 ) {
-                ps.wipPB->rawRequest[ ps.rawIdx++ ] = n;
             }
             continue;
         }
 
-        // If match fully resolved with no %, feed remainder into payload
+        // Match fully resolved with no % — feed remainder into payload
         if ( ps.inPayload ) {
             AppendPayloadByte( n );
             continue;
@@ -252,15 +256,12 @@ void ProcessStream( const uint8_t* data, uint32_t len ) {
             char p = (char)tolower( (unsigned char)pattern[ ps.matchPos ] );
 
             if ( p == '%' ) {
-                // Wildcard: resolve immediately, start copying into rawRequest
-                ps.wipPB->route           = route;
-                ps.wipPB->origin          = API_MODE_API;
-                ps.inRaw                  = true;
-                ps.rawIdx                 = 0;
-                ps.candidateCount         = 0;
-                if ( ps.rawIdx < API_REQUEST_MAX_LEN - 1 ) {
-                    ps.wipPB->rawRequest[ ps.rawIdx++ ] = n;
-                }
+                // Wildcard: resolve immediately; reqString already contains every byte
+                // (including this one) thanks to the pre-resolution capture above.
+                ps.wipPB->route   = route;
+                ps.wipPB->syntax  = route->syntax;
+                ps.inRaw          = true;
+                ps.candidateCount = 0;
                 resolved = true;
                 break;
             }
@@ -284,7 +285,7 @@ void ProcessStream( const uint8_t* data, uint32_t len ) {
 
             if ( ps.matchPos == strlen( pattern ) ) {
                 ps.wipPB->route   = route;
-                ps.wipPB->origin  = API_MODE_API;
+                ps.wipPB->syntax  = route->syntax;
                 ps.inPayload      = true;
                 ps.candidateCount = 0;
                 resolved          = true;
@@ -295,7 +296,7 @@ void ProcessStream( const uint8_t* data, uint32_t len ) {
         // No candidates and no resolution: unknown route
         if ( ps.candidateCount == 0 && !ps.inPayload && !ps.inRaw ) {
             if ( ps.wipPB ) {
-                ps.wipPB->status = API_STATUS_NOT_FOUND;
+                ps.wipPB->status = APIStatusNotFound;
                 ps.wipPB->route  = NULL;
                 EnqueuePB( GetInputQueue(), ps.wipPB );
                 ps.wipPB = NULL;
@@ -322,13 +323,13 @@ APIPBPtr GetNextRequest( void ) {
 /// @return Statically allocated string; never NULL.
 static inline const char* GetStatusMessage( APIStatus status ) {
     switch ( status ) {
-        case API_STATUS_OK:             return "OK";
-        case API_STATUS_CREATED:        return "Created";
-        case API_STATUS_NO_CONTENT:     return "No Content";
-        case API_STATUS_BAD_REQUEST:    return "Bad Request";
-        case API_STATUS_NOT_FOUND:      return "Not Found";
-        case API_STATUS_CONFLICT:       return "Conflict";
-        case API_STATUS_INTERNAL_ERROR: return "Internal Error";
+        case APIStatusOK:             return "OK";
+        case APIStatusCreated:        return "Created";
+        case APIStatusNoContent:     return "No Content";
+        case APIStatusBadRequest:    return "Bad Request";
+        case APIStatusNotFound:      return "Not Found";
+        case APIStatusConflict:       return "Conflict";
+        case APIStatusInternalError: return "Internal Error";
         default:                        return "Unknown";
     }
 }
@@ -343,7 +344,7 @@ static inline const char* GetStatusMessage( APIStatus status ) {
 /// @param[in]     len    Number of bytes to append.
 static inline void AppendBlock( SerialState* state, const char* src, size_t len ) {
     while ( len > 0 && !state->error ) {
-        size_t space = API_BUFFER_SIZE - state->current->length;
+        size_t space = kApiBufferSize - state->current->length;
 
         if ( space == 0 ) {
             APIBufferPtr next = AcquireBuffer();
@@ -353,7 +354,7 @@ static inline void AppendBlock( SerialState* state, const char* src, size_t len 
             }
             state->current->next = next;
             state->current       = next;
-            space                = API_BUFFER_SIZE;
+            space                = kApiBufferSize;
         }
 
         size_t toCopy = ( len < space ) ? len : space;
@@ -394,10 +395,10 @@ static void AppendInt( SerialState* state, uint32_t val ) {
 /// @param[in]     term   Terminator type echoed from the original request.
 static inline void AppendTerminator( SerialState* state, TerminatorType term ) {
     switch ( term ) {
-        case TypeCRLF: AppendBlock( state, "\r\n", 2 ); break;
-        case TypeCR:   AppendBlock( state, "\r",   1 ); break;
-        case TypeZero: AppendBlock( state, "\0",   1 ); break;
-        case TypeLF:
+        case TermCRLF: AppendBlock( state, "\r\n", 2 ); break;
+        case TermCR:   AppendBlock( state, "\r",   1 ); break;
+        case TermZero: AppendBlock( state, "\0",   1 ); break;
+        case TermLF:
         default:       AppendBlock( state, "\n",   1 ); break;
     }
 }
@@ -491,19 +492,15 @@ static bool SerialiseCLI( APIPBPtr pb ) {
     return true;
 }
 
-/// @brief Serialise a completed APIPB response and enqueue it for USB transmission.
-///
-/// Dispatches to SerialiseAPI() for API_MODE_API or SerialiseCLI() for all other
-/// origins. Releases the payload chain after serialisation; the caller remains
-/// responsible for returning the PB itself via ReleasePB().
+/// @brief Serialise a completed APIPB and enqueue for USB transmission.
 void APIQueueForSend( APIPBPtr pb ) {
     if ( !pb ) return;
 
-    if ( pb->origin == API_MODE_API ) {
+    if ( pb->syntax == APISyntaxREST ) {
         SerialiseAPI( pb );
     } else {
         SerialiseCLI( pb );
     }
 
-    ReleasePBMembers( pb );
+    ReleasePB( pb );
 }

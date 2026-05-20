@@ -10,10 +10,10 @@
 /// `apicodec.c`) to avoid multiple-definition link errors. All other translation
 /// units see only the type declarations.
 ///
-/// Each route pattern is an `sscanf`-compatible prefix string. A bare `%s` in the
-/// pattern marks a wildcard argument; everything up to the terminator after `%s`
-/// is captured into `APIPB.rawRequest`. Patterns without `%s` treat all remaining
-/// bytes as payload body.
+/// Each route pattern is an `sscanf`-compatible prefix string. A `%` directive in
+/// the pattern marks a typed argument (`%s`, `%d`, etc.). Handlers extract
+/// arguments by calling `sscanf(reqString, route->pattern, ...)`. Patterns
+/// without `%` treat all remaining bytes as payload body.
 ///
 /// @copyright Copyright (c) 2026 Tim Hosking
 /// @see https://github.com/munger
@@ -34,55 +34,57 @@
 /// to exactly one code and one handler.
 typedef enum {
     // Oven
-    API_REQ_OVEN_STATUS,      ///< GET /oven/status
-    API_REQ_OVEN_RUN,         ///< PUT /oven/run
-    API_REQ_OVEN_STOP,        ///< PUT /oven/stop
-    API_REQ_OVEN_ESTOP,       ///< PUT /oven/estop
+    APIReqOvenStatus,      ///< get /oven/status
+    APIReqOvenRun,         ///< put /oven/run
+    APIReqOvenStop,        ///< put /oven/stop
+    APIReqOvenEstop,       ///< put /oven/estop
     // Manual Control
-    API_REQ_MANUAL_ENABLE,    ///< PUT /oven/manual/enable
-    API_REQ_MANUAL_DISABLE,   ///< PUT /oven/manual/disable
-    API_REQ_MANUAL_HEATER,    ///< PUT /oven/manual/heater
-    API_REQ_MANUAL_FAN,       ///< PUT /oven/manual/fan
+    APIReqManualEnable,    ///< put /oven/manual/enable
+    APIReqManualDisable,   ///< put /oven/manual/disable
+    APIReqManualHeater,    ///< put /oven/manual/heater
+    APIReqManualFan,       ///< put /oven/manual/fan
     // Sensors
-    API_REQ_SENSORS_TEMP,     ///< GET /sensors/temperature
-    API_REQ_SENSORS_MAINS,    ///< GET /sensors/mains
+    APIReqSensorsTemp,     ///< get /sensors/temperature
+    APIReqSensorsMains,    ///< get /sensors/mains
     // Profiles
-    API_REQ_PROFILE_LIST,     ///< GET /profiles
-    API_REQ_PROFILE_GET,      ///< GET /profiles/%s
-    API_REQ_PROFILE_CREATE,   ///< POST /profiles/%s
-    API_REQ_PROFILE_UPDATE,   ///< PUT /profiles/%s
-    API_REQ_PROFILE_DELETE,   ///< DELETE /profiles/%s
+    APIReqProfileList,     ///< get /profiles
+    APIReqProfileGet,      ///< get /profiles/%s
+    APIReqProfileCreate,   ///< post /profiles/%s
+    APIReqProfileUpdate,   ///< put /profiles/%s
+    APIReqProfileDelete,   ///< delete /profiles/%s
     // Config
-    API_REQ_CONFIG_GET,       ///< GET /config
-    API_REQ_CONFIG_PUT,       ///< PUT /config
+    APIReqConfigGet,       ///< get /config
+    APIReqConfigPut,       ///< put /config
     // Logs
-    API_REQ_LOGS_LIST,        ///< GET /logs
-    API_REQ_LOG_GET,          ///< GET /logs/%s
-    API_REQ_LOG_DELETE,       ///< DELETE /logs/%s
-    API_REQ_LOGS_CLEAR,       ///< DELETE /logs
+    APIReqLogsList,        ///< get /logs
+    APIReqLogGet,          ///< get /logs/%s
+    APIReqLogDelete,       ///< delete /logs/%s
+    APIReqLogsClear,       ///< delete /logs
     // Storage
-    API_REQ_STORAGE_GET,      ///< GET /storage
-    API_REQ_STORAGE_FORMAT,   ///< PUT /storage/format
+    APIReqStorageGet,      ///< get /storage
+    APIReqStorageFormat,   ///< put /storage/format
     // System
-    API_REQ_SYSTEM_STATUS,    ///< GET /system/status
-    API_REQ_CLOCK_GET,        ///< GET /system/clock
-    API_REQ_CLOCK_PUT,        ///< PUT /system/clock
-    API_REQ_SYSTEM_RESET,     ///< PUT /system/reset
+    APIReqSystemStatus,    ///< get /system/status
+    APIReqClockGet,        ///< get /system/clock
+    APIReqClockPut,        ///< put /system/clock
+    APIReqSystemReset,     ///< put /system/reset
     // Power
-    API_REQ_POWER_GET,        ///< GET /power
+    APIReqPowerGet,        ///< get /power
     // UI
-    API_REQ_UI_LIGHT,         ///< PUT /ui/light
-    API_REQ_UI_BUZZER         ///< PUT /ui/buzzer
+    APIReqUiLight,         ///< put /ui/light
+    APIReqUiBuzzer         ///< put /ui/buzzer
 } APIRequestCode;
 
 /// @brief A single entry in the API route table.
 ///
 /// The stream parser walks `apiRouteTable` character-by-character, pruning
-/// candidates until exactly one pattern matches (or none remain). A `%` in
-/// the pattern causes the parser to resolve immediately and start capturing
-/// subsequent bytes into `APIPB.rawRequest`.
+/// candidates until exactly one pattern matches (or none remain). Every byte
+/// is captured into `APIPB.reqString`; handlers extract arguments with
+/// `sscanf(reqString, route->pattern, ...)`. A `%` in the pattern causes
+/// the parser to resolve immediately and skip further candidate pruning.
 typedef struct APIRoute {
-    const char*    pattern;  ///< sscanf-compatible pattern, e.g. `"GET /profiles/%s"`.
+    const char*    pattern;  ///< sscanf-compatible pattern used for both route matching and typed argument extraction.
+    APISyntax      syntax;   ///< Serialisation format for the response.
     APIRequestCode reqCode;  ///< Logical request code for the matched route.
     APIHandler     handler;  ///< Direct handler function to call on dispatch.
 } APIRoute, *APIRoutePtr;
@@ -95,75 +97,85 @@ typedef struct APIRoute {
 /// the CLI shorthand. The parser resolves whichever prefix matches first.
 /// This array is only instantiated inside apicodec.c (when APICODEC_C is defined).
 const APIRoute apiRouteTable[] = {
-    // Oven
-    { "GET /oven/status",           API_REQ_OVEN_STATUS,    HandlerOvenStatus    },
-    { "status",                     API_REQ_OVEN_STATUS,    HandlerOvenStatus    },
-    { "PUT /oven/run",              API_REQ_OVEN_RUN,       HandlerOvenRun       },
-    { "run profile %s",             API_REQ_OVEN_RUN,       HandlerOvenRun       },
-    { "PUT /oven/stop",             API_REQ_OVEN_STOP,      HandlerOvenStop      },
-    { "stop",                       API_REQ_OVEN_STOP,      HandlerOvenStop      },
-    { "PUT /oven/estop",            API_REQ_OVEN_ESTOP,     HandlerOvenEstop     },
-    { "estop",                      API_REQ_OVEN_ESTOP,     HandlerOvenEstop     },
-    // Manual Control
-    { "PUT /oven/manual/enable",    API_REQ_MANUAL_ENABLE,  HandlerManualEnable  },
-    { "set manual on",              API_REQ_MANUAL_ENABLE,  HandlerManualEnable  },
-    { "PUT /oven/manual/disable",   API_REQ_MANUAL_DISABLE, HandlerManualDisable },
-    { "set manual off",             API_REQ_MANUAL_DISABLE, HandlerManualDisable },
-    { "PUT /oven/manual/heater",    API_REQ_MANUAL_HEATER,  HandlerManualHeater  },
-    { "set heater %s %d",           API_REQ_MANUAL_HEATER,  HandlerManualHeater  },
-    { "PUT /oven/manual/fan",       API_REQ_MANUAL_FAN,     HandlerManualFan     },
-    { "set fan %d",                 API_REQ_MANUAL_FAN,     HandlerManualFan     },
-    // Sensors
-    { "GET /sensors/temperature",   API_REQ_SENSORS_TEMP,   HandlerSensorsTemp   },
-    { "temp",                       API_REQ_SENSORS_TEMP,   HandlerSensorsTemp   },
-    { "GET /sensors/mains",         API_REQ_SENSORS_MAINS,  HandlerSensorsMains  },
-    { "mains",                      API_REQ_SENSORS_MAINS,  HandlerSensorsMains  },
-    // Profiles
-    { "GET /profiles",              API_REQ_PROFILE_LIST,   HandlerProfilesList  },
-    { "list profiles",              API_REQ_PROFILE_LIST,   HandlerProfilesList  },
-    { "GET /profiles/%s",           API_REQ_PROFILE_GET,    HandlerProfileGet    },
-    { "show profile %s",            API_REQ_PROFILE_GET,    HandlerProfileGet    },
-    { "POST /profiles/%s",          API_REQ_PROFILE_CREATE, HandlerProfileCreate },
-    { "create profile %s",          API_REQ_PROFILE_CREATE, HandlerProfileCreate },
-    { "PUT /profiles/%s",           API_REQ_PROFILE_UPDATE, HandlerProfileUpdate },
-    { "update profile %s",          API_REQ_PROFILE_UPDATE, HandlerProfileUpdate },
-    { "DELETE /profiles/%s",        API_REQ_PROFILE_DELETE, HandlerProfileDelete },
-    { "delete profile %s",          API_REQ_PROFILE_DELETE, HandlerProfileDelete },
-    // Config
-    { "GET /config",                API_REQ_CONFIG_GET,     HandlerConfigGet     },
-    { "config",                     API_REQ_CONFIG_GET,     HandlerConfigGet     },
-    { "PUT /config",                API_REQ_CONFIG_PUT,     HandlerConfigPut     },
-    // Logs
-    { "GET /logs",                  API_REQ_LOGS_LIST,      HandlerLogsList      },
-    { "list logs",                  API_REQ_LOGS_LIST,      HandlerLogsList      },
-    { "GET /logs/%s",               API_REQ_LOG_GET,        HandlerLogGet        },
-    { "show log %s",                API_REQ_LOG_GET,        HandlerLogGet        },
-    { "DELETE /logs/%s",            API_REQ_LOG_DELETE,     HandlerLogDelete     },
-    { "delete log %s",              API_REQ_LOG_DELETE,     HandlerLogDelete     },
-    { "DELETE /logs",               API_REQ_LOGS_CLEAR,     HandlerLogsClear     },
-    { "clear logs",                 API_REQ_LOGS_CLEAR,     HandlerLogsClear     },
-    // Storage
-    { "GET /storage",               API_REQ_STORAGE_GET,    HandlerStorageGet    },
-    { "storage",                    API_REQ_STORAGE_GET,    HandlerStorageGet    },
-    { "PUT /storage/format",        API_REQ_STORAGE_FORMAT, HandlerStorageFormat },
-    { "format storage",             API_REQ_STORAGE_FORMAT, HandlerStorageFormat },
-    // System
-    { "GET /system/status",         API_REQ_SYSTEM_STATUS,  HandlerSystemStatus  },
-    { "sysstat",                    API_REQ_SYSTEM_STATUS,  HandlerSystemStatus  },
-    { "GET /system/clock",          API_REQ_CLOCK_GET,      HandlerClockGet      },
-    { "clock",                      API_REQ_CLOCK_GET,      HandlerClockGet      },
-    { "PUT /system/clock",          API_REQ_CLOCK_PUT,      HandlerClockPut      },
-    { "set clock %s",               API_REQ_CLOCK_PUT,      HandlerClockPut      },
-    { "PUT /system/reset",          API_REQ_SYSTEM_RESET,   HandlerSystemReset   },
-    { "reset",                      API_REQ_SYSTEM_RESET,   HandlerSystemReset   },
-    // Power
-    { "GET /power",                 API_REQ_POWER_GET,      HandlerPowerGet      },
-    { "power",                      API_REQ_POWER_GET,      HandlerPowerGet      },
-    // UI
-    { "PUT /ui/light",              API_REQ_UI_LIGHT,       HandlerUiLight       },
-    { "set light %s",               API_REQ_UI_LIGHT,       HandlerUiLight       },
-    { "PUT /ui/buzzer",             API_REQ_UI_BUZZER,      HandlerUiBuzzer      },
-    { "buzz %s",                    API_REQ_UI_BUZZER,      HandlerUiBuzzer      }
+    // Oven — REST
+    { "get /oven/status",           APISyntaxREST,    APIReqOvenStatus,    HandlerOvenStatus },
+    { "put /oven/run",              APISyntaxREST,    APIReqOvenRun,       HandlerOvenRun    },
+    { "put /oven/stop",             APISyntaxREST,    APIReqOvenStop,      HandlerOvenStop   },
+    { "put /oven/estop",            APISyntaxREST,    APIReqOvenEstop,     HandlerOvenEstop  },
+    // Oven — CLI
+    { "status",                     APISyntaxCLI,     APIReqOvenStatus,    HandlerOvenStatus },
+    { "run profile %s",             APISyntaxCLI,     APIReqOvenRun,       HandlerOvenRun    },
+    { "stop",                       APISyntaxCLI,     APIReqOvenStop,      HandlerOvenStop   },
+    { "estop",                      APISyntaxCLI,     APIReqOvenEstop,     HandlerOvenEstop  },
+    // Manual Control — REST
+    { "put /oven/manual/enable",    APISyntaxREST,    APIReqManualEnable,  HandlerManualEnable  },
+    { "put /oven/manual/disable",   APISyntaxREST,    APIReqManualDisable, HandlerManualDisable },
+    { "put /oven/manual/heater",    APISyntaxREST,    APIReqManualHeater,  HandlerManualHeater  },
+    { "put /oven/manual/fan",       APISyntaxREST,    APIReqManualFan,     HandlerManualFan     },
+    // Manual Control — CLI
+    { "set manual on",              APISyntaxCLI,     APIReqManualEnable,  HandlerManualEnable  },
+    { "set manual off",             APISyntaxCLI,     APIReqManualDisable, HandlerManualDisable },
+    { "set heater %s %d",           APISyntaxCLI,     APIReqManualHeater,  HandlerManualHeater  },
+    { "set fan %d",                 APISyntaxCLI,     APIReqManualFan,     HandlerManualFan     },
+    // Sensors — REST
+    { "get /sensors/temperature",   APISyntaxREST,    APIReqSensorsTemp,   HandlerSensorsTemp  },
+    { "get /sensors/mains",         APISyntaxREST,    APIReqSensorsMains,  HandlerSensorsMains },
+    // Sensors — CLI
+    { "temp",                       APISyntaxCLI,     APIReqSensorsTemp,   HandlerSensorsTemp  },
+    { "mains",                      APISyntaxCLI,     APIReqSensorsMains,  HandlerSensorsMains },
+    // Profiles — REST
+    { "get /profiles",              APISyntaxREST,    APIReqProfileList,   HandlerProfilesList  },
+    { "get /profiles/%s",           APISyntaxREST,    APIReqProfileGet,    HandlerProfileGet    },
+    { "post /profiles/%s",          APISyntaxREST,    APIReqProfileCreate, HandlerProfileCreate },
+    { "put /profiles/%s",           APISyntaxREST,    APIReqProfileUpdate, HandlerProfileUpdate },
+    { "delete /profiles/%s",        APISyntaxREST,    APIReqProfileDelete, HandlerProfileDelete },
+    // Profiles — CLI
+    { "list profiles",              APISyntaxCLI,     APIReqProfileList,   HandlerProfilesList  },
+    { "show profile %s",            APISyntaxCLI,     APIReqProfileGet,    HandlerProfileGet    },
+    { "create profile %s",          APISyntaxCLI,     APIReqProfileCreate, HandlerProfileCreate },
+    { "update profile %s",          APISyntaxCLI,     APIReqProfileUpdate, HandlerProfileUpdate },
+    { "delete profile %s",          APISyntaxCLI,     APIReqProfileDelete, HandlerProfileDelete },
+    // Config — REST
+    { "get /config",                APISyntaxREST,    APIReqConfigGet,     HandlerConfigGet },
+    { "put /config",                APISyntaxREST,    APIReqConfigPut,     HandlerConfigPut },
+    // Config — CLI
+    { "config",                     APISyntaxCLI,     APIReqConfigGet,     HandlerConfigGet },
+    // Logs — REST
+    { "get /logs",                  APISyntaxREST,    APIReqLogsList,      HandlerLogsList  },
+    { "get /logs/%s",               APISyntaxREST,    APIReqLogGet,        HandlerLogGet    },
+    { "delete /logs/%s",            APISyntaxREST,    APIReqLogDelete,     HandlerLogDelete },
+    { "delete /logs",               APISyntaxREST,    APIReqLogsClear,     HandlerLogsClear },
+    // Logs — CLI
+    { "list logs",                  APISyntaxCLI,     APIReqLogsList,      HandlerLogsList  },
+    { "show log %s",                APISyntaxCLI,     APIReqLogGet,        HandlerLogGet    },
+    { "delete log %s",              APISyntaxCLI,     APIReqLogDelete,     HandlerLogDelete },
+    { "clear logs",                 APISyntaxCLI,     APIReqLogsClear,     HandlerLogsClear },
+    // Storage — REST
+    { "get /storage",               APISyntaxREST,    APIReqStorageGet,    HandlerStorageGet    },
+    { "put /storage/format",        APISyntaxREST,    APIReqStorageFormat, HandlerStorageFormat },
+    // Storage — CLI
+    { "storage",                    APISyntaxCLI,     APIReqStorageGet,    HandlerStorageGet    },
+    { "format storage",             APISyntaxCLI,     APIReqStorageFormat, HandlerStorageFormat },
+    // System — REST
+    { "get /system/status",         APISyntaxREST,    APIReqSystemStatus,  HandlerSystemStatus },
+    { "get /system/clock",          APISyntaxREST,    APIReqClockGet,      HandlerClockGet     },
+    { "put /system/clock",          APISyntaxREST,    APIReqClockPut,      HandlerClockPut     },
+    { "put /system/reset",          APISyntaxREST,    APIReqSystemReset,   HandlerSystemReset  },
+    // System — CLI
+    { "sysstat",                    APISyntaxCLI,     APIReqSystemStatus,  HandlerSystemStatus },
+    { "clock",                      APISyntaxCLI,     APIReqClockGet,      HandlerClockGet     },
+    { "set clock %s",               APISyntaxCLI,     APIReqClockPut,      HandlerClockPut     },
+    { "reset",                      APISyntaxCLI,     APIReqSystemReset,   HandlerSystemReset  },
+    // Power — REST
+    { "get /power",                 APISyntaxREST,    APIReqPowerGet,      HandlerPowerGet },
+    // Power — CLI
+    { "power",                      APISyntaxCLI,     APIReqPowerGet,      HandlerPowerGet },
+    // UI — REST
+    { "put /ui/light",              APISyntaxREST,    APIReqUiLight,       HandlerUiLight  },
+    { "put /ui/buzzer",             APISyntaxREST,    APIReqUiBuzzer,      HandlerUiBuzzer },
+    // UI — CLI
+    { "set light %s",               APISyntaxCLI,     APIReqUiLight,       HandlerUiLight  },
+    { "buzz %s",                    APISyntaxCLI,     APIReqUiBuzzer,      HandlerUiBuzzer }
 };
 
 /// @brief Number of entries in `apiRouteTable`.

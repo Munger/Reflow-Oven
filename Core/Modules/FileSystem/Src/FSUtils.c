@@ -18,6 +18,12 @@
 // Path utilities
 // ============================================================================
 
+/// @brief Join a directory path and filename into an absolute path.
+/// @param[out] dst     Destination buffer.
+/// @param[in]  dstSize Size of the destination buffer.
+/// @param[in]  dir     Directory path (ignored if name is absolute).
+/// @param[in]  name    Filename or path component.
+/// @return true if the path was written, false on truncation or NULL inputs.
 bool FSPathBuild( char* dst, size_t dstSize, const char* dir, const char* name ) {
     if ( !dst || dstSize == 0 ) return false;
     dst[ 0 ] = '\0';
@@ -45,6 +51,9 @@ bool FSPathBuild( char* dst, size_t dstSize, const char* dir, const char* name )
     return true;
 }
 
+/// @brief Return a pointer to the final component of a path.
+/// @param[in] path  Path string (e.g. "/system/config.ini").
+/// @return Pointer within @p path past the last '/' separator.
 const char* FSPathBasename( const char* path ) {
     if ( !path ) return path;
     const char* last = path;
@@ -54,6 +63,9 @@ const char* FSPathBasename( const char* path ) {
     return last;
 }
 
+/// @brief Return a pointer to the file extension (including the dot).
+/// @param[in] path  Path string.
+/// @return Pointer to the last '.' in the basename, or NULL.
 const char* FSPathExtension( const char* path ) {
     if ( !path ) return NULL;
     const char* base = FSPathBasename( path );
@@ -65,6 +77,11 @@ const char* FSPathExtension( const char* path ) {
     return dot;
 }
 
+/// @brief Extract the parent directory path from a path.
+/// @param[out] dst     Destination buffer.
+/// @param[in]  dstSize Size of the destination buffer.
+/// @param[in]  path    Path string.
+/// @return true on success, false on truncation or NULL inputs.
 bool FSPathDirname( char* dst, size_t dstSize, const char* path ) {
     if ( !dst || dstSize == 0 ) return false;
     dst[ 0 ] = '\0';
@@ -90,6 +107,9 @@ bool FSPathDirname( char* dst, size_t dstSize, const char* path ) {
     return true;
 }
 
+/// @brief Check whether a path starts with '/'.
+/// @param[in] path  Path string.
+/// @return true if @p path starts with '/'.
 bool FSPathIsAbsolute( const char* path ) {
     return path != NULL && path[ 0 ] == '/';
 }
@@ -98,6 +118,13 @@ bool FSPathIsAbsolute( const char* path ) {
 // File convenience wrappers
 // ============================================================================
 
+/// @brief Read an entire file into a buffer (convenience wrapper).
+/// @param[in]  path      Absolute path to the file.
+/// @param[in]  uid       Effective UID for permission checks.
+/// @param[out] buf       Destination buffer.
+/// @param[in]  maxLen    Maximum number of bytes to read.
+/// @param[out] bytesRead Set to the number of bytes actually read (may be NULL).
+/// @return FSResultOk on success, or an FSResult error code.
 FSResult FSReadFile( const char* path, FSUid uid,
                      void* buf, size_t maxLen, size_t* bytesRead ) {
     if ( bytesRead ) *bytesRead = 0;
@@ -112,6 +139,12 @@ FSResult FSReadFile( const char* path, FSUid uid,
     return result;
 }
 
+/// @brief Write an entire buffer to a file (convenience wrapper).
+/// @param[in] path  Absolute path to the file (created or truncated).
+/// @param[in] uid   Effective UID for permission checks.
+/// @param[in] buf   Source data.
+/// @param[in] len   Number of bytes to write.
+/// @return FSResultOk on success, or an FSResult error code.
 FSResult FSWriteFile( const char* path, FSUid uid,
                       const void* buf, size_t len ) {
     FileRef f = FileOpen( path, FSOpenWriteOnly | FSOpenCreate | FSOpenTruncate, uid );
@@ -125,6 +158,12 @@ FSResult FSWriteFile( const char* path, FSUid uid,
     return result;
 }
 
+/// @brief Append a buffer to a file (convenience wrapper).
+/// @param[in] path  Absolute path to the file (created if absent).
+/// @param[in] uid   Effective UID for permission checks.
+/// @param[in] buf   Source data.
+/// @param[in] len   Number of bytes to append.
+/// @return FSResultOk on success, or an FSResult error code.
 FSResult FSAppendFile( const char* path, FSUid uid,
                        const void* buf, size_t len ) {
     FileRef f = FileOpen( path, FSOpenWriteOnly | FSOpenCreate | FSOpenAppend, uid );
@@ -138,11 +177,19 @@ FSResult FSAppendFile( const char* path, FSUid uid,
     return result;
 }
 
+/// @brief Check whether a file or directory exists.
+/// @param[in] path  Absolute path to check.
+/// @param[in] uid   Effective UID (used for stat permission, currently reserved).
+/// @return true if the path exists and is accessible.
 bool FSExists( const char* path, FSUid uid ) {
     FSStat stat;
     return FileStat( path, uid, &stat ) == FSResultOk;
 }
 
+/// @brief Get the size of a file in bytes.
+/// @param[in] path  Absolute path to the file.
+/// @param[in] uid   Effective UID (used for stat permission, currently reserved).
+/// @return File size in bytes, or a negative FSResult error code on failure.
 int32_t FSGetSize( const char* path, FSUid uid ) {
     FSStat stat;
     FSResult result = FileStat( path, uid, &stat );
@@ -150,6 +197,10 @@ int32_t FSGetSize( const char* path, FSUid uid ) {
     return (int32_t)stat.size;
 }
 
+/// @brief Ensure a directory exists, creating it if necessary.
+/// @param[in] path  Absolute path to the directory.
+/// @param[in] uid   Effective UID and owner for the new directory.
+/// @return FSResultOk on success (exists or created), or an FSResult error code.
 FSResult FSEnsureDir( const char* path, FSUid uid ) {
     FSResult result = FileMkdir( path, uid, FSModeDirDefault );
     return ( result == FSResultExists ) ? FSResultOk : result;

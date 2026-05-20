@@ -67,20 +67,30 @@ static FSVolume pool[ kVolMaxCount ];
 // Package-private accessors (declared in FSInternal.h)
 // ============================================================================
 
+/// @brief Return the LittleFS instance for a mounted volume.
+/// @param[in] vol  Volume handle, or NULL.
+/// @return Pointer to lfs_t, or NULL if vol is NULL or unmounted.
 lfs_t* VolGetLFS( VolRef vol ) {
     if ( vol == NULL ) return NULL;
     if ( !( vol->statusBits & BIT_SHIFT( FlagVolMounted ) ) ) return NULL;
     return &vol->lfs;
 }
 
+/// @brief Return the number of open files on a volume.
+/// @param[in] vol  Volume handle, or NULL.
+/// @return Open file count (0 if vol is NULL).
 uint8_t VolGetOpenFileCount( VolRef vol ) {
     return vol ? vol->openFileCount : 0;
 }
 
+/// @brief Increment the open-file reference count for a volume.
+/// @param[in,out] vol  Volume handle (safe no-op if NULL).
 void VolIncrementOpenFiles( VolRef vol ) {
     if ( vol ) vol->openFileCount++;
 }
 
+/// @brief Decrement the open-file reference count for a volume.
+/// @param[in,out] vol  Volume handle (safe no-op if NULL or already zero).
 void VolDecrementOpenFiles( VolRef vol ) {
     if ( vol && vol->openFileCount > 0 ) vol->openFileCount--;
 }
@@ -89,6 +99,8 @@ void VolDecrementOpenFiles( VolRef vol ) {
 // Private helpers
 // ============================================================================
 
+/// @brief Allocate a free volume slot from the pool.
+/// @return Pointer to a zeroed FSVolume, or NULL if all slots are in use.
 static FSVolumePtr AllocVolume( void ) {
     for ( uint8_t i = 0; i < kVolMaxCount; i++ ) {
         if ( !( pool[ i ].statusBits & BIT_SHIFT( FlagVolMounted ) ) ) {
@@ -99,6 +111,10 @@ static FSVolumePtr AllocVolume( void ) {
     return NULL;
 }
 
+/// @brief Check whether a volume should be mounted read-only.
+/// @param[in] vol    Volume about to be mounted.
+/// @param[in] entry  Partition entry for the volume.
+/// @return true if either the mount flags or partition flags request read-only.
 static bool IsReadOnly( const VolRef vol, const FSPartEntryPtr entry ) {
     if ( vol->mountFlags & FSMountReadOnly )          return true;
     if ( entry->flags & (uint8_t)FSPartFlagReadOnly ) return true;
@@ -109,6 +125,14 @@ static bool IsReadOnly( const VolRef vol, const FSPartEntryPtr entry ) {
 // Public API
 // ============================================================================
 
+/// @brief Mount a LittleFS filesystem on a partition.
+///
+/// Resolves the partition geometry, allocates a volume slot, configures
+/// the LittleFS instance, and mounts (or formats-and-mounts) the filesystem.
+///
+/// @param[in] part  Partition to mount.
+/// @param[in] flags  Mount flags (e.g. FSMountReadOnly).
+/// @return VolRef handle, or NULL on failure.
 VolRef VolMount( PartRef part, FSMountFlags flags ) {
     if ( part == NULL ) return NULL;
 
@@ -144,6 +168,9 @@ VolRef VolMount( PartRef part, FSMountFlags flags ) {
     return vol;
 }
 
+/// @brief Unmount a volume and release its LittleFS instance.
+/// @param[in,out] vol  Volume to unmount.
+/// @return FSResultOk on success, or FSResultInvalid / FSResultNotMounted / FSResultBusy.
 FSResult VolUnmount( VolRef vol ) {
     if ( vol == NULL )                                return FSResultInvalid;
     if ( !( vol->statusBits & BIT_SHIFT( FlagVolMounted ) ) ) return FSResultNotMounted;
@@ -154,6 +181,14 @@ FSResult VolUnmount( VolRef vol ) {
     return FSResultOk;
 }
 
+/// @brief Format a mounted volume, destroying all data.
+///
+/// Unmounts, formats, and remounts the filesystem. Only UID 0 (System)
+/// may format a volume.
+///
+/// @param[in,out] vol  Volume to format.
+/// @param[in] uid      Caller's UID (must be 0).
+/// @return FSResultOk on success, or an FSResult error code.
 FSResult VolFormat( VolRef vol, FSUid uid ) {
     if ( vol == NULL ) return FSResultInvalid;
     if ( uid != 0 )    return FSResultPermission;
@@ -180,14 +215,27 @@ FSResult VolFormat( VolRef vol, FSUid uid ) {
     return FSResultOk;
 }
 
+/// @brief Return the status bits for a volume.
+/// @param[in] vol  Volume handle, or NULL.
+/// @return Status bitmask (0 if vol is NULL).
 uint32_t VolGetStatus( VolRef vol ) {
     return vol ? vol->statusBits : 0;
 }
 
+/// @brief Return the partition backing a volume.
+/// @param[in] vol  Volume handle, or NULL.
+/// @return PartRef handle, or NULL if vol is NULL.
 PartRef VolGetPartition( VolRef vol ) {
     return vol ? vol->partition : NULL;
 }
 
+/// @brief Resolve an absolute path to the volume that owns it.
+///
+/// Matches the leading path component against mounted volume mount points.
+///
+/// @param[in]  absPath  Absolute path, e.g. "/system/SysConfig.ini".
+/// @param[out] relPath  Set to the volume-relative path on success.
+/// @return Mounted VolRef handle, or NULL if no matching volume is found.
 VolRef VolResolve( const char* absPath, const char** relPath ) {
     if ( absPath == NULL || relPath == NULL ) return NULL;
     for ( uint8_t i = 0; i < kVolMaxCount; i++ ) {

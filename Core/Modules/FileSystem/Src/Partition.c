@@ -93,6 +93,9 @@ enum { kDefaultEntryCount = sizeof( kDefaultEntries ) / sizeof( kDefaultEntries[
 // Checksum
 // ============================================================================
 
+/// @brief Compute the additive checksum over the partition table header and entries.
+/// @param[in] rec  Partition table record (checksum field excluded from computation).
+/// @return 32-bit additive checksum.
 static uint32_t ComputeChecksum( const PartTableRecordPtr rec ) {
     const uint8_t* p   = (const uint8_t*)rec;
     size_t         len = sizeof( PartTableRecord ) - sizeof( uint32_t );
@@ -105,6 +108,9 @@ static uint32_t ComputeChecksum( const PartTableRecordPtr rec ) {
 // Private helpers
 // ============================================================================
 
+/// @brief Populate the partition table with the default layout.
+///
+/// Called when no valid partition table is found on the device.
 static void LoadDefaults( void ) {
     partCount = (uint8_t)kDefaultEntryCount;
     for ( uint8_t i = 0; i < partCount; i++ ) {
@@ -113,6 +119,8 @@ static void LoadDefaults( void ) {
     }
 }
 
+/// @brief Serialise the in-memory partition table to block 0 of the device.
+/// @return FSResultOk on success, or an FSResult error code.
 static FSResult WriteTable( void ) {
     PartTableRecord rec;
     memset( &rec, 0xFF, sizeof( rec ) );
@@ -149,6 +157,13 @@ static FSResult WriteTable( void ) {
 // Public API
 // ============================================================================
 
+/// @brief Initialise the partition module from the block device.
+///
+/// Reads the on-disk partition table from block 0. If the magic, version,
+/// or checksum is invalid the default layout is written and used.
+///
+/// @param[in] bd  Block device for the underlying storage.
+/// @return FSResultOk on success, or an FSResult error code.
 FSResult PartInitModule( BDRef bd ) {
     if ( bd == NULL ) return FSResultInvalid;
     partDevice = bd;
@@ -177,14 +192,22 @@ FSResult PartInitModule( BDRef bd ) {
     return FSResultOk;
 }
 
+/// @brief Return the number of registered partitions.
+/// @return Partition count.
 uint8_t PartGetCount( void ) {
     return partCount;
 }
 
+/// @brief Look up a partition by index.
+/// @param[in] index  Zero-based partition index.
+/// @return PartRef handle, or NULL if the index is out of range.
 PartRef PartGetByIndex( uint8_t index ) {
     return ( index < partCount ) ? &table[ index ] : NULL;
 }
 
+/// @brief Look up a partition by name.
+/// @param[in] name  Partition name (compared up to kPartNameLen).
+/// @return PartRef handle, or NULL if no matching partition is found.
 PartRef PartGetByName( const char* name ) {
     if ( name == NULL ) return NULL;
     for ( uint8_t i = 0; i < partCount; i++ ) {
@@ -195,16 +218,25 @@ PartRef PartGetByName( const char* name ) {
     return NULL;
 }
 
+/// @brief Copy a partition's entry data out to the caller.
+/// @param[in]  part  Partition handle.
+/// @param[out] out   Destination for the FSPartEntry copy.
+/// @return FSResultOk on success, or FSResultInvalid if either pointer is NULL.
 FSResult PartGetEntry( PartRef part, FSPartEntryPtr out ) {
     if ( part == NULL || out == NULL ) return FSResultInvalid;
     *out = part->entry;
     return FSResultOk;
 }
 
+/// @brief Return the block device backing a partition.
+/// @param[in] part  Partition handle, or NULL.
+/// @return BDRef handle, or NULL if part is NULL.
 BDRef PartGetDevice( PartRef part ) {
     return part ? part->device : NULL;
 }
 
+/// @brief Persist the current partition table to block 0.
+/// @return FSResultOk on success, or an FSResult error code.
 FSResult PartCommit( void ) {
     if ( partDevice == NULL ) return FSResultNotReady;
     return WriteTable();

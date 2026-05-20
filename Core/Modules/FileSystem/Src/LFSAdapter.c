@@ -27,6 +27,9 @@
 // Error mapping
 // ============================================================================
 
+/// @brief Convert a LittleFS negative error code to an FSResult value.
+/// @param[in] lfsErr  LittleFS error code (negative) or success (>=0).
+/// @return Equivalent FSResult code.
 FSResult FSMapLFSError( int lfsErr ) {
     if ( lfsErr >= 0 )           return FSResultOk;
     switch ( lfsErr ) {
@@ -52,6 +55,13 @@ FSResult FSMapLFSError( int lfsErr ) {
 // (block 0 = first block of the partition). We offset by entry.startBlock
 // to get the absolute block number on the physical device.
 
+/// @brief LittleFS block device read callback.
+/// @param[in] c     lfs_config with context set to the FSVolume.
+/// @param[in] block Block number relative to the partition start.
+/// @param[in] off   Byte offset within the block.
+/// @param[out] buf  Destination buffer.
+/// @param[in] size  Number of bytes to read.
+/// @return 0 on success, or LFS_ERR_IO on failure.
 static int LFSRead( const struct lfs_config* c,
                     lfs_block_t block, lfs_off_t off,
                     void* buf, lfs_size_t size ) {
@@ -64,6 +74,13 @@ static int LFSRead( const struct lfs_config* c,
     return ( r == FSResultOk ) ? 0 : LFS_ERR_IO;
 }
 
+/// @brief LittleFS block device program (write) callback.
+/// @param[in] c     lfs_config with context set to the FSVolume.
+/// @param[in] block Block number relative to the partition start.
+/// @param[in] off   Byte offset within the block.
+/// @param[in] buf   Source data to program.
+/// @param[in] size  Number of bytes to program.
+/// @return 0 on success, or LFS_ERR_IO on failure.
 static int LFSProg( const struct lfs_config* c,
                     lfs_block_t block, lfs_off_t off,
                     const void* buf, lfs_size_t size ) {
@@ -76,6 +93,10 @@ static int LFSProg( const struct lfs_config* c,
     return ( r == FSResultOk ) ? 0 : LFS_ERR_IO;
 }
 
+/// @brief LittleFS block device erase callback.
+/// @param[in] c     lfs_config with context set to the FSVolume.
+/// @param[in] block Block number relative to the partition start.
+/// @return 0 on success, or LFS_ERR_IO on failure.
 static int LFSErase( const struct lfs_config* c, lfs_block_t block ) {
     VolRef vol = c->context;
     FSPartEntry entry;
@@ -85,6 +106,9 @@ static int LFSErase( const struct lfs_config* c, lfs_block_t block ) {
     return ( r == FSResultOk ) ? 0 : LFS_ERR_IO;
 }
 
+/// @brief LittleFS block device sync (flush) callback.
+/// @param[in] c  lfs_config with context set to the FSVolume.
+/// @return 0 on success, or LFS_ERR_IO on failure.
 static int LFSSync( const struct lfs_config* c ) {
     VolRef vol = c->context;
     BDRef  bd  = PartGetDevice( VolGetPartition( vol ) );

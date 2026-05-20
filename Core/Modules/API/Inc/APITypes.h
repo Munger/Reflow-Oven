@@ -5,7 +5,7 @@
 /// Defines the fundamental types used by the USB REST / CLI API subsystem:
 ///   - Pool sizing constants (payload, protocol buffer, transmit buffer counts/sizes)
 ///   - `APIStatus` — HTTP-like response status codes
-///   - `APIMode`   — request origin (API JSON vs. CLI text)
+///   - `APISyntax` — serialisation format declared per route
 ///   - `APIMethod` — HTTP verb (GET, POST, PUT, DELETE)
 ///   - `TerminatorType` — line-ending style detected by the stream parser
 ///   - `Payload`   — singly-linked data chunk for response bodies
@@ -23,39 +23,38 @@
 
 /// @brief API pool and buffer sizing constants.
 enum {
-    API_PAYLOAD_SIZE    = 512, ///< Maximum bytes in a single Payload data chunk.
-    API_PAYLOAD_COUNT   = 64,  ///< Total Payload objects in the static pool.
-    APIPB_COUNT         = 10,  ///< Total APIPB protocol buffers in the static pool.
-    API_BUFFER_SIZE     = 512, ///< Maximum bytes in a single APIBuffer transmit chunk.
-    API_BUFFER_COUNT    = 8,   ///< Total APIBuffer objects in the static pool.
-    API_REQUEST_MAX_LEN = 256  ///< Maximum bytes captured into APIPB.rawRequest.
+    kApiPayloadSize    = 512, ///< Maximum bytes in a single Payload data chunk.
+    kApiPayloadCount   = 64,  ///< Total Payload objects in the static pool.
+    kApiPbCount         = 10,  ///< Total APIPB protocol buffers in the static pool.
+    kApiBufferSize     = 512, ///< Maximum bytes in a single APIBuffer transmit chunk.
+    kApiBufferCount    = 8,   ///< Total APIBuffer objects in the static pool.
+    kApiRequestMaxLen = 256  ///< Maximum bytes captured into APIPB.reqString.
 };
 
 /// @brief HTTP-like response status codes returned by handler functions.
 typedef enum {
-    API_STATUS_OK             = 200, ///< Request succeeded.
-    API_STATUS_CREATED        = 201, ///< Resource created successfully.
-    API_STATUS_NO_CONTENT     = 204, ///< Request succeeded; no body to return.
-    API_STATUS_BAD_REQUEST    = 400, ///< Malformed request or invalid parameters.
-    API_STATUS_NOT_FOUND      = 404, ///< No route matched the incoming request.
-    API_STATUS_CONFLICT       = 409, ///< Request conflicts with current state.
-    API_STATUS_INTERNAL_ERROR = 500  ///< Handler encountered an internal error.
+    APIStatusOK             = 200, ///< Request succeeded.
+    APIStatusCreated        = 201, ///< Resource created successfully.
+    APIStatusNoContent     = 204, ///< Request succeeded; no body to return.
+    APIStatusBadRequest    = 400, ///< Malformed request or invalid parameters.
+    APIStatusNotFound      = 404, ///< No route matched the incoming request.
+    APIStatusConflict       = 409, ///< Request conflicts with current state.
+    APIStatusInternalError = 500  ///< Handler encountered an internal error.
 } APIStatus;
 
-/// @brief Request origin mode, used to select the serialisation format on output.
+/// @brief Serialisation syntax declared in each route entry.
 typedef enum {
-    API_MODE_UNDETERMINED, ///< Mode has not yet been determined by the parser.
-    API_MODE_API,          ///< Request arrived as a REST JSON command — serialise as JSON.
-    API_MODE_CLI           ///< Request arrived as a CLI text command — serialise as a human-readable prompt.
-} APIMode;
+    APISyntaxREST, ///< Serialise as REST response (e.g. JSON or CBOR for a web client).
+    APISyntaxCLI,  ///< Serialise as human-readable text for a terminal user.
+} APISyntax;
 
 /// @brief HTTP verb parsed from the incoming request line.
 typedef enum {
-    API_METHOD_UNKNOWN = 0, ///< No verb recognised.
-    API_METHOD_GET,         ///< HTTP GET.
-    API_METHOD_POST,        ///< HTTP POST.
-    API_METHOD_PUT,         ///< HTTP PUT.
-    API_METHOD_DELETE       ///< HTTP DELETE.
+    APIMethodUnknown = 0, ///< No verb recognised.
+    APIMethodGet,         ///< HTTP GET.
+    APIMethodPost,        ///< HTTP POST.
+    APIMethodPut,         ///< HTTP PUT.
+    APIMethodDelete       ///< HTTP DELETE.
 } APIMethod;
 
 /// @brief Line-ending style detected by the stream parser.
@@ -64,11 +63,11 @@ typedef enum {
 /// the host-side line discipline receives a consistent output format regardless
 /// of which convention it sent.
 typedef enum {
-    TypeNull, ///< No terminator detected (sentinel; unused after a completed parse).
-    TypeLF,   ///< Bare LF (0x0A).
-    TypeCR,   ///< Bare CR (0x0D).
-    TypeCRLF, ///< CR+LF pair (0x0D 0x0A).
-    TypeZero  ///< Null byte (0x00); response is also null-terminated.
+    TermNull, ///< No terminator detected (sentinel; unused after a completed parse).
+    TermLF,   ///< Bare LF (0x0A).
+    TermCR,   ///< Bare CR (0x0D).
+    TermCRLF, ///< CR+LF pair (0x0D 0x0A).
+    TermZero  ///< Null byte (0x00); response is also null-terminated.
 } TerminatorType;
 
 /// @brief Singly-linked data chunk for building multi-part response bodies.
@@ -79,7 +78,7 @@ typedef enum {
 /// all chunks to the pool.
 typedef struct Payload {
     struct Payload* next;              ///< Next chunk in the chain, or NULL if this is the last.
-    char            data[ API_PAYLOAD_SIZE ]; ///< Raw data bytes for this chunk.
+    char            data[ kApiPayloadSize ]; ///< Raw data bytes for this chunk.
 } Payload, *PayloadPtr;
 
 /// @brief Protocol buffer — the unit of work flowing through the API pipeline.
@@ -91,10 +90,10 @@ typedef struct Payload {
 typedef struct APIPB {
     struct APIPB*          next;                          ///< Queue linkage — must remain first.
     APIStatus              status;                        ///< Response status code written by the handler.
-    uint8_t                rawRequest[ API_REQUEST_MAX_LEN ]; ///< Argument bytes captured after the `%` wildcard in the route pattern.
+    uint8_t                reqString[ kApiRequestMaxLen ]; ///< Full sanitised (lowercased, space-collapsed) request line captured by the stream parser.
     const struct APIRoute* route;                         ///< Matched route entry, or NULL if not found.
     PayloadPtr             payload;                       ///< Head of the response body payload chain.
-    APIMode                origin;                        ///< Request origin (API JSON or CLI text).
+    APISyntax              syntax;                        ///< Serialisation format from the matched route.
     TerminatorType         terminator;                    ///< Line-ending style from the incoming request.
 } APIPB, *APIPBPtr;
 
@@ -106,7 +105,7 @@ typedef struct APIPB {
 /// singly-linked node.
 typedef struct APIBuffer {
     struct APIBuffer* next;              ///< Queue linkage — must be FIRST.
-    char              data[ API_BUFFER_SIZE ]; ///< Serialised response bytes.
+    char              data[ kApiBufferSize ]; ///< Serialised response bytes.
     size_t            length;            ///< Number of valid bytes in `data`.
 } APIBuffer, *APIBufferPtr;
 

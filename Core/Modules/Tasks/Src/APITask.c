@@ -57,17 +57,14 @@ void APITaskLoop( void ) {
 
     APIPBPtr req;
     while ( ( req = GetNextRequest() ) != NULL ) {
-        APIPB resp = { 0 };
-        resp.origin = req->origin;
-        resp.route  = req->route;
-
         if ( req->route && req->route->handler ) {
-            // Handler owns req and must call ReleasePB(req) before returning
-            resp.payload = req->route->handler( req );
-        }
-
-        if ( resp.payload ) {
-            APIQueueForSend( &resp );
+            APIPBPtr resp = req->route->handler( req );
+            ReleasePB( req );
+            if ( resp ) {
+                APIQueueForSend( resp );
+            }
+        } else {
+            ReleasePB( req );
         }
     }
     USBSendAll();

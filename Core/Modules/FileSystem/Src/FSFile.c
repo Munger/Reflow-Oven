@@ -58,6 +58,8 @@ static FSFileHandle handlePool[ kFileMaxOpen ];
 // Private helpers
 // ============================================================================
 
+/// @brief Allocate a file handle from the shared pool.
+/// @return Pointer to a zeroed FSFileHandle marked in-use, or NULL if the pool is full.
 static FSFileHandlePtr AllocHandle( void ) {
     for ( uint8_t i = 0; i < kFileMaxOpen; i++ ) {
         if ( !handlePool[ i ].inUse ) {
@@ -69,10 +71,15 @@ static FSFileHandlePtr AllocHandle( void ) {
     return NULL;
 }
 
+/// @brief Return a file handle to the shared pool.
+/// @param[in,out] h  Handle to free (may be NULL; safe no-op).
 static void FreeHandle( FSFileHandlePtr h ) {
     if ( h ) h->inUse = false;
 }
 
+/// @brief Translate FSOpenFlags to LittleFS lfs_open flags.
+/// @param[in] flags  FSOpenFlags bitmask.
+/// @return LittleFS flags word suitable for lfs_file_opencfg().
 static int MapOpenFlags( FSOpenFlags flags ) {
     int lfsFlags = 0;
     switch ( flags & 0x03 ) {
@@ -97,6 +104,11 @@ static int MapOpenFlags( FSOpenFlags flags ) {
 enum { kAttrUid  = 0x01 };  // stored as 1 byte
 enum { kAttrMode = 0x02 };  // stored as 2 bytes (little-endian)
 
+/// @brief Read LittleFS custom attributes (uid, mode) for a file or directory.
+/// @param[in]  lfs   Mounted LittleFS instance.
+/// @param[in]  path  Absolute path within the volume.
+/// @param[out] uid   Set to the file owner UID (0 if absent).
+/// @param[out] mode  Set to the file permission mode (unchanged if absent).
 static void GetFileAttrs( lfs_t* lfs, const char* path,
                           FSUid* uid, FSMode* mode ) {
     uint8_t  u = 0;
@@ -109,6 +121,12 @@ static void GetFileAttrs( lfs_t* lfs, const char* path,
     // If kAttrMode is absent, *mode retains the caller's default
 }
 
+/// @brief Write LittleFS custom attributes (uid, mode) for a file or directory.
+/// @param[in] lfs   Mounted LittleFS instance.
+/// @param[in] path  Absolute path within the volume.
+/// @param[in] uid   Owner UID to store.
+/// @param[in] mode  Permission mode to store.
+/// @return FSResultOk on success, or an FSResult error code.
 static FSResult SetFileAttrs( lfs_t* lfs, const char* path,
                                FSUid uid, FSMode mode ) {
     uint8_t  u = (uint8_t)uid;
@@ -137,6 +155,16 @@ static bool HasWritePermission( FSUid uid, FSUid ownerUid, FSMode mode ) {
 // Public API — files
 // ============================================================================
 
+/// @brief Open or create a file on a mounted filesystem.
+///
+/// Resolves the absolute path to a volume, checks read/write permissions,
+/// allocates a file handle, and opens the LittleFS file. If the file does
+/// not exist and FSOpenCreate is set, it is created with default attributes.
+///
+/// @param[in] path   Absolute path to the file (e.g. "/system/config.ini").
+/// @param[in] flags  Open-mode bitmask (read/write/create/truncate/append).
+/// @param[in] uid    Effective UID of the caller (0 bypasses permission checks).
+/// @return Opaque FileRef handle, or NULL on failure.
 FileRef FileOpen( const char* path, FSOpenFlags flags, FSUid uid ) {
     if ( path == NULL ) return NULL;
 
@@ -193,6 +221,9 @@ FileRef FileOpen( const char* path, FSOpenFlags flags, FSUid uid ) {
     return h;
 }
 
+/// @brief Close an open file handle.
+/// @param[in,out] file  Handle returned by FileOpen().
+/// @return FSResultOk on success, or an FSResult error code.
 FSResult FileClose( FileRef file ) {
     if ( file == NULL || !file->inUse ) return FSResultInvalid;
     lfs_t* lfs = VolGetLFS( file->volume );
@@ -204,6 +235,12 @@ FSResult FileClose( FileRef file ) {
     return FSMapLFSError( err );
 }
 
+/// @brief Read bytes from an open file at the current seek position.
+/// @param[in]  file  Open file handle.
+/// @param[out] buf   Destination buffer.
+/// @param[in]  size  Number of bytes to read.
+/// @param[out] read  Set to the number of bytes actually read.
+/// @return FSResultOk on success, or an FSResult error code.
 FSResult FileRead( FileRef file, void* buf, size_t size, size_t* read ) {
     if ( file == NULL || buf == NULL || read == NULL ) return FSResultInvalid;
     lfs_t* lfs = VolGetLFS( file->volume );
@@ -218,6 +255,12 @@ FSResult FileRead( FileRef file, void* buf, size_t size, size_t* read ) {
     return FSResultOk;
 }
 
+/// @brief Write bytes to an open file at the current seek position.
+/// @param[in]  file    Open file handle with write permission.
+/// @param[in]  buf     Source data.
+/// @param[in]  size    Number of bytes to write.
+/// @param[out] written Set to the number of bytes actually written.
+/// @return FSResultOk on success, or an FSResult error code.
 FSResult FileWrite( FileRef file, const void* buf, size_t size, size_t* written ) {
     if ( file == NULL || buf == NULL || written == NULL ) return FSResultInvalid;
     if ( !file->canWrite ) return FSResultPermission;
@@ -233,6 +276,12 @@ FSResult FileWrite( FileRef file, const void* buf, size_t size, size_t* written 
     return FSResultOk;
 }
 
+/// @brief Seek to a position in an open file.
+/// @param[in]  file   Open file handle.
+/// @param[in]  offset Offset relative to @p origin.
+/// @param[in]  origin  SeekOrigin (start, current, or end).
+/// @param[out] pos    Set to the resulting absolute position in the file.
+/// @return FSResultOk on success, or an FSResult error code.
 FSResult FileSeek( FileRef file, int32_t offset, FSSeekOrigin origin, uint32_t* pos ) {
     if ( file == NULL || pos == NULL ) return FSResultInvalid;
     lfs_t* lfs = VolGetLFS( file->volume );
@@ -248,6 +297,10 @@ FSResult FileSeek( FileRef file, int32_t offset, FSSeekOrigin origin, uint32_t* 
     return FSResultOk;
 }
 
+/// @brief Return the current read/write position in an open file.
+/// @param[in]  file Open file handle.
+/// @param[out] pos  Set to the current byte offset from the start of the file.
+/// @return FSResultOk on success, or an FSResult error code.
 FSResult FileTell( FileRef file, uint32_t* pos ) {
     if ( file == NULL || pos == NULL ) return FSResultInvalid;
     lfs_t* lfs = VolGetLFS( file->volume );
@@ -263,6 +316,16 @@ FSResult FileTell( FileRef file, uint32_t* pos ) {
 // Public API — directory and metadata
 // ============================================================================
 
+/// @brief Stat a file or directory by absolute path.
+///
+/// Resolves the path to a volume and retrieves size, type, mode, and owner.
+/// Permission checks on the stat operation itself are not enforced (any
+/// caller can stat), but the returned uid can be used for later checks.
+///
+/// @param[in]  path Absolute path to the file or directory.
+/// @param[in]  uid  Effective UID (currently unused, reserved for future filtering).
+/// @param[out] stat Populated with size, mode, uid, and isDir.
+/// @return FSResultOk on success, or FSResultNotFound / FSResultNotMounted.
 FSResult FileStat( const char* path, FSUid uid, FSStatPtr stat ) {
     if ( path == NULL || stat == NULL ) return FSResultInvalid;
     const char* relPath;
@@ -286,6 +349,10 @@ FSResult FileStat( const char* path, FSUid uid, FSStatPtr stat ) {
     return FSResultOk;
 }
 
+/// @brief Delete a file or empty directory by absolute path.
+/// @param[in] path Absolute path to the entry to remove.
+/// @param[in] uid  Effective UID (only the owner or UID 0 may delete).
+/// @return FSResultOk on success, or an FSResult error code.
 FSResult FileDelete( const char* path, FSUid uid ) {
     if ( path == NULL ) return FSResultInvalid;
     const char* relPath;
@@ -304,6 +371,11 @@ FSResult FileDelete( const char* path, FSUid uid ) {
     return FSMapLFSError( lfs_remove( lfs, relPath ) );
 }
 
+/// @brief Create a directory and set its owner and permissions.
+/// @param[in] path Absolute path for the new directory.
+/// @param[in] uid  Owner UID to assign.
+/// @param[in] mode Permission mode (e.g. FSModeDirDefault).
+/// @return FSResultOk on success, or an FSResult error code.
 FSResult FileMkdir( const char* path, FSUid uid, FSMode mode ) {
     if ( path == NULL ) return FSResultInvalid;
     const char* relPath;
@@ -325,6 +397,17 @@ FSResult FileMkdir( const char* path, FSUid uid, FSMode mode ) {
 // then invokes the callback before returning. A dedicated FS task can take
 // over by queuing an operation struct — the public API will not change.
 
+/// @brief Asynchronously read from an open file.
+///
+/// Currently runs synchronously and invokes @p callback before returning.
+/// A future dedicated FS task can queue the operation without changing the API.
+///
+/// @param[in]  file     Open file handle.
+/// @param[out] buf      Destination buffer.
+/// @param[in]  size     Number of bytes to read.
+/// @param[in]  callback Called with the result and @p userData when the read completes.
+/// @param[in]  userData User pointer passed through to the callback.
+/// @return FSResultOk on success, or an FSResult error code.
 FSResult FileReadAsync( FileRef file, void* buf, size_t size,
                         FSCallback callback, void* userData ) {
     size_t   bytesRead = 0;
@@ -333,8 +416,19 @@ FSResult FileReadAsync( FileRef file, void* buf, size_t size,
     return result;
 }
 
+/// @brief Asynchronously write to an open file.
+///
+/// Currently runs synchronously and invokes @p callback before returning.
+/// A future dedicated FS task can queue the operation without changing the API.
+///
+/// @param[in]  file     Open file handle with write permission.
+/// @param[in]  buf      Source data.
+/// @param[in]  size     Number of bytes to write.
+/// @param[in]  callback Called with the result and @p userData when the write completes.
+/// @param[in]  userData User pointer passed through to the callback.
+/// @return FSResultOk on success, or an FSResult error code.
 FSResult FileWriteAsync( FileRef file, const void* buf, size_t size,
-                         FSCallback callback, void* userData ) {
+                          FSCallback callback, void* userData ) {
     size_t   written = 0;
     FSResult result  = FileWrite( file, buf, size, &written );
     if ( callback ) callback( result, userData );
@@ -345,6 +439,9 @@ FSResult FileWriteAsync( FileRef file, const void* buf, size_t size,
 // Diagnostics
 // ============================================================================
 
+/// @brief Return the last error recorded on a file handle.
+/// @param[in] file File handle to query, or NULL.
+/// @return The last FSResult error, or FSResultInvalid if file is NULL.
 FSResult FileGetLastError( FileRef file ) {
     return file ? file->lastError : FSResultInvalid;
 }
