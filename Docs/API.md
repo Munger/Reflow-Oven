@@ -2,564 +2,520 @@
 
 ## Overview
 
-All communication is over USB CDC (Serial). The MCU accepts JSON requests and returns JSON responses. Plain text shorthand commands are also accepted and mapped to the equivalent JSON operations.
+All communication is over USB CDC (Serial). The MCU accepts plain-text
+method+path requests (with optional body) and returns JSON responses.
+Short CLI-style commands are also accepted.
 
-### Request Envelope
-```json
-{
-  "method": "GET|POST|PUT|DELETE",
-  "path": "/resource/subresource",
-  "body": {}
-}
+### Wire Format (REST)
+
+```
+METHOD /path/subpath\r\n
+body bytes\r\n
 ```
 
-### Response Envelope
+The request line is `<METHOD> <path>`.  An optional body follows — JSON
+`{}`, tagged CSV, or raw bytes depending on the endpoint.  No envelope.
+
+Responses are a single JSON object:
+
 ```json
-{
-  "status": 200,
-  "path": "/resource/subresource",
-  "body": {}
-}
+{ "status": 200, "message": "OK", "data": null }
 ```
+
+The `data` field contains the payload or `null`.  Structured payloads
+(e.g. profile CSV) are embedded as a quoted JSON string in `data`.
+
+### Wire Format (CLI)
+
+```
+command arg1 arg2
+```
+
+Line ending follows whatever the terminal sends (`\n` or `\r\n`).
+
+Response:
+
+```
+\r\n[OK] payload\r\n>
+```
+
+Leading CRLF, trailing `>` prompt, `[OK]`/`[ERR]` prefix for terminal use.
 
 ### Status Codes
+
 | Code | Meaning |
 |------|---------|
 | 200 | OK |
 | 201 | Created |
+| 202 | Accepted — async operation started; poll for result |
 | 204 | No Content |
 | 400 | Bad Request |
+| 403 | Forbidden — action not permitted in current state |
 | 404 | Not Found |
 | 409 | Conflict (e.g. oven already running) |
+| 422 | Unprocessable — semantically invalid body |
 | 500 | Internal Error |
-
-### Unsolicited Push Events
-The MCU may push events at any time without a prior request:
-```json
-{
-  "event": "event_name",
-  "data": {}
-}
-```
+| 501 | Not Implemented — route is valid but hardware not fitted |
+| 503 | Unavailable — service temporarily busy (e.g. filesystem) |
 
 ---
 
-## /oven
+## 1. Devices
 
-### GET /oven/status
-Returns current oven state.
+The `/devices` tree exposes every registered instance on this board.
+Nothing is a singleton — each instance has a `<type>/<name>` path.
+What exists depends on the board revision and runtime registration.
 
-**Response:**
+When debug mode is enabled (see System → Debug Mode), device GET
+responses include a `flags` field with the raw driver status bitmask.
+
+### Discovery
+
+List all registered device instances.
+
+**REST:** `GET /devices`
+**CLI:**  `devices`
+
+**Response (200):**
 ```json
 {
   "status": 200,
-  "path": "/oven/status",
-  "body": {
-    "state": "idle|running|manual|cooling|fault|estop",
-    "profile": "profile_name_or_null",
+  "message": "OK",
+  "data": {
+    "instances": [
+      { "type": "heater",  "name": "top" },
+      { "type": "heater",  "name": "rear" },
+      { "type": "heater",  "name": "bottom" },
+      { "type": "light",   "name": "oven" },
+      { "type": "thermocouple", "name": "oven" },
+      { "type": "thermistor",   "name": "cjt1" },
+      { "type": "thermistor",   "name": "cjt2" },
+      { "type": "thermistor",   "name": "oven" },
+      { "type": "thermistor",   "name": "heatsink" },
+      { "type": "tachometer",   "name": "ovenFan" },
+      { "type": "fan",     "name": "oven" },
+      { "type": "fan",     "name": "board" },
+      { "type": "buzzer",  "name": "main" },
+      { "type": "oven",    "name": "main" }
+    ]
+  }
+}
+```
+
+### Heater
+
+A resistive heating element.  Power is expressed as percent (0–100).
+
+**REST:** `GET /devices/heater/<name>`, `PUT /devices/heater/<name>`
+**CLI:**  `heater <name>`, `heater <name> <0-100>`
+
+| Method | Body | Action |
+|--------|------|--------|
+| GET | — | Return current power and status |
+| PUT | `{ "power": 50 }` | Set output power 0–100 |
+
+**GET response (200):**
+```json
+{
+  "data": {
+    "power": 50,
+    "on": true,
+    "ready": true
+  }
+}
+```
+
+### Light
+
+An on/off or dimmable AC output. Brightness is expressed as percent
+(0–100); dimmable lights accept the full range, on/off lamps treat
+any value > 0 as on.
+
+**REST:** `GET /devices/light/<name>`, `PUT /devices/light/<name>`
+**CLI:**  `light <name>`, `light <name> <0-100>`
+
+| Method | Body | Action |
+|--------|------|--------|
+| GET | — | Return current brightness and status |
+| PUT | `{ "brightness": 100 }` | Set brightness 0–100 |
+
+**GET response (200):**
+```json
+{
+  "data": {
+    "brightness": 100,
+    "on": true,
+    "ready": true
+  }
+}
+```
+
+### Thermocouple
+
+A thermocouple channel returning hot-junction and cold-junction
+temperatures in milli-°C.
+
+**REST:** `GET /devices/thermocouple/<name>`
+**CLI:**  `temp <name>`
+
+```json
+{
+  "data": {
+    "temp": 23500,
+    "cjt": 22100,
+    "fault": null
+  }
+}
+```
+
+### Thermistor
+
+A thermistor temperature reading in milli-°C.
+
+**REST:** `GET /devices/thermistor/<name>`
+**CLI:**  `ntc <name>`
+
+```json
+{
+  "data": {
+    "temp": 24200
+  }
+}
+```
+
+### Tachometer
+
+A rotational-speed sensor reading RPM.
+
+**REST:** `GET /devices/tachometer/<name>`
+**CLI:**  `rpm <name>`
+
+### Fan
+
+An AC or DC fan.  AC fans without an encoder operate in on/off mode only
+(power is either 0 or 100).  DC fans accept 0–100 percent.
+
+**REST:** `GET /devices/fan/<name>`, `PUT /devices/fan/<name>`
+**CLI:**  `fan <name>`, `fan <name> <0-100>`
+
+| Method | Body | Action |
+|--------|------|--------|
+| GET | — | Return current power and status |
+| PUT | `{ "power": 80 }` | Set fan power 0–100 |
+
+### Buzzer
+
+**REST:** `PUT /devices/buzzer/<name>`
+**CLI:**  `buzz <name> <pattern>`
+
+Body: `{ "pattern": "beep|alarm|success|off", "duration": 500 }` (milliseconds)
+
+### Oven Controller
+
+A closed-loop temperature controller managing a set of heaters,
+thermocouples, and a fan to maintain a target temperature.  The
+reflow engine commands one or more oven instances but the controller
+itself is also exposed for direct use.
+
+Temperatures in milli-°C.
+
+**REST:** `GET /devices/oven/<name>`, `PUT /devices/oven/<name>`
+
+| Method | Body | Action |
+|--------|------|--------|
+| GET | — | Return current temp, target, pid state |
+| PUT | `{ "target": 150000 }` | Set target temperature (milli-°C) |
+| PUT | `{ "mode": "idle" }` | Stop control |
+
+---
+
+### Cycle Status
+
+**REST:** `GET /reflow/status`
+**CLI:**  `status`
+
+```json
+{
+  "data": {
+    "state": "idle|running|cooling|fault|estop",
+    "profile": "sac305",
     "stage": "preheat|soak|reflow|cooldown|null",
-    "elapsed_s": 123,
-    "remaining_s": 45
+    "elapsed": 123,
+    "remaining": 45
   }
 }
 ```
 
-**Text shorthand:** `STATUS`
+### Run Profile
+
+**REST:** `PUT /reflow/run`  (body: `{ "profile": "sac305" }`)
+**CLI:**  `run profile <name>`
+
+**Response:** `200 OK` or `409 Conflict`.
+
+### Stop
+
+**REST:** `PUT /reflow/stop`
+**CLI:**  `stop`
 
 ---
 
-### PUT /oven/run
-Start a stored profile.
+## 2. Profiles
 
-**Request:**
+### List Profiles
+
+**REST:** `GET /profiles`
+**CLI:**  `list profiles`
+
 ```json
 {
-  "method": "PUT",
-  "path": "/oven/run",
-  "body": {
-    "profile": "profile_name"
-  }
-}
-```
-
-**Response:** `200 OK` or `409 Conflict` if already running.
-
-**Text shorthand:** `RUN <profile_name>`
-
----
-
-### PUT /oven/stop
-Stop the current profile and begin cooldown.
-
-**Response:** `200 OK`
-
-**Text shorthand:** `STOP`
-
----
-
-### PUT /oven/estop
-Software emergency stop. Immediately disables hot side power.
-
-**Response:** `200 OK`
-
-**Text shorthand:** `ESTOP`
-
----
-
-### /oven/manual
-Manual control mode for testing and commissioning. Must be explicitly enabled before use. Oven must be idle.
-
-#### PUT /oven/manual/enable
-Enable manual control mode.
-
-**Response:** `200 OK` or `409 Conflict` if oven is running.
-
-**Text shorthand:** `MANUAL ON`
-
----
-
-#### PUT /oven/manual/disable
-Disable manual control mode. All outputs set to off.
-
-**Response:** `200 OK`
-
-**Text shorthand:** `MANUAL OFF`
-
----
-
-#### PUT /oven/manual/heater
-Set individual heater power. Requires manual mode enabled.
-
-**Request:**
-```json
-{
-  "method": "PUT",
-  "path": "/oven/manual/heater",
-  "body": {
-    "heater": "top|bottom|rear",
-    "power_pct": 50
-  }
-}
-```
-
-**Response:** `200 OK`
-
-**Text shorthand:** `HEATER <top|bottom|rear> <0-100>`
-
----
-
-#### PUT /oven/manual/fan
-Set fan speed. Requires manual mode enabled.
-
-**Request:**
-```json
-{
-  "method": "PUT",
-  "path": "/oven/manual/fan",
-  "body": {
-    "speed_pct": 75
-  }
-}
-```
-
-**Response:** `200 OK`
-
-**Text shorthand:** `FAN <0-100>`
-
----
-
-## /sensors
-
-### GET /sensors/temperature
-Returns all thermocouple readings.
-
-**Response:**
-```json
-{
-  "status": 200,
-  "path": "/sensors/temperature",
-  "body": {
-    "oven": 23.5,
-    "cjt1": 22.1,
-    "cjt2": 22.3,
-    "unit": "C",
-    "timestamp": "2025-01-01T12:00:00"
-  }
-}
-```
-
-**Text shorthand:** `TEMP`
-
----
-
-### GET /sensors/mains
-Returns mains frequency derived from ZCD.
-
-**Response:**
-```json
-{
-  "status": 200,
-  "path": "/sensors/mains",
-  "body": {
-    "frequency_hz": 50.01,
-    "present": true
-  }
-}
-```
-
-**Text shorthand:** `MAINS`
-
----
-
-## /profiles
-
-### GET /profiles
-List all stored profiles.
-
-**Response:**
-```json
-{
-  "status": 200,
-  "path": "/profiles",
-  "body": {
+  "data": {
     "profiles": [
-      { "name": "leaded_standard", "size_bytes": 512 },
-      { "name": "leadfree_rma", "size_bytes": 640 }
+      { "name": "sac305", "size": 512 }
     ]
   }
 }
 ```
 
-**Text shorthand:** `PROFILES`
+### Get Profile
 
----
+**REST:** `GET /profiles/<name>`
+**CLI:**  `show profile <name>`
 
-### GET /profiles/{name}
-Retrieve a specific profile.
+`data` is a quoted string of tagged CSV stages separated by `;`:
 
-**Response:**
 ```json
 {
-  "status": 200,
-  "path": "/profiles/leaded_standard",
-  "body": {
-    "name": "leaded_standard",
-    "stages": [
-      { "name": "preheat",  "target_c": 150, "duration_s": 90,  "fan_pct": 0  },
-      { "name": "soak",     "target_c": 180, "duration_s": 60,  "fan_pct": 0  },
-      { "name": "reflow",   "target_c": 220, "duration_s": 45,  "fan_pct": 0  },
-      { "name": "cooldown", "target_c": 50,  "duration_s": 120, "fan_pct": 100 }
-    ]
-  }
+  "data": "tyPreheat,tc150000,rr2000,...;tySoak,tc183000,..."
 }
 ```
 
-**Text shorthand:** `PROFILE <name>`
+**CSV tag reference (per stage):**
 
----
+| Tag | Type | Description |
+|-----|------|-------------|
+| `ty` | string | Stage label, no spaces |
+| `tc` | int | Target temp in milli-°C; 0 = no target (start stage immediately) |
+| `rr` | int | Ramp rate in milli-°C/s, signed |
+| `to` | uint | Max ms to wait for target; 0 = no timeout |
+| `hv` | uint | ms to hold once target is reached |
+| `fs` | ushort | Fan speed 0–1000 (permille) |
+| `fa` | uint | ms to accelerate fan; 0 = instant |
+| `h0` | bool | Heater top, 0 or 1 |
+| `h1` | bool | Heater rear, 0 or 1 |
+| `h2` | bool | Heater bottom, 0 or 1 |
+| `fn` | int | Stage function: 0 = none, 1 = Fan Calibration, 2 = Thermal Calibration |
 
-### POST /profiles/{name}
-Create or overwrite a profile.
+Stages are separated by `;` when multiple appear in one body.
 
-**Request body:** Same structure as GET response body.
+### Create / Overwrite Profile
+
+Body is raw tagged CSV.  Stages `;`-delimited.
+
+**REST:**
+```
+POST /profiles/sac305\r\n
+tyPreheat,tc150000,...;tySoak,tc183000,...\r\n
+```
+**CLI (one-shot):**
+```
+create profile sac305 tyPreheat,tc150000,...;tySoak,tc183000,...
+```
+**CLI (two-step):**
+```
+create profile sac305 stages:Preheat,Soak,Reflow,Cooldown
+update profile sac305 stage=Preheat tc=150000,rr=2000,hv=60000,fs=200
+```
 
 **Response:** `201 Created`
 
-**Text shorthand:** Not available — use JSON.
+### Update Profile
 
----
+**REST:** `PUT /profiles/<name>`  (body: same CSV format)
+**CLI:**  `update profile <name> ...`
 
-### DELETE /profiles/{name}
-Delete a profile.
+**Response:** `200 OK`
+
+### Add / Delete Stage
+
+**CLI:**
+```
+add profile sac305 stage=Cooling tc=50000,rr=-3000,hv=30000,fs=800
+delete profile sac305 stage=Cooling
+```
+
+### Delete Profile
+
+**REST:** `DELETE /profiles/<name>`
+**CLI:**  `delete profile <name>`
 
 **Response:** `204 No Content`
 
-**Text shorthand:** `DELPROFILE <name>`
-
 ---
 
-## /config
+## 3. Configuration
 
-### GET /config
-Retrieve all system configuration.
+### Get Configuration
 
-**Response:**
-```json
-{
-  "status": 200,
-  "path": "/config",
-  "body": {
-    "pid": {
-      "kp": 1.0,
-      "ki": 0.1,
-      "kd": 0.05
-    },
-    "temp_unit": "C",
-    "log_level": "info|debug|warn|error",
-    "buzzer_enabled": true,
-    "light_on_run": true
-  }
-}
-```
+**REST:** `GET /config`
+**CLI:**  `config`
 
-**Text shorthand:** `CONFIG`
+### Update Configuration
 
----
-
-### PUT /config
-Update configuration. Partial updates accepted.
-
-**Request body:** Any subset of the config structure.
+**REST:** `PUT /config`  (body: any subset of config keys)
+**CLI:**  not available — use REST
 
 **Response:** `200 OK`
 
 ---
 
-## /logs
+## 4. Logs
 
-### GET /logs
-List all log files.
+### List Logs
 
-**Response:**
+**REST:** `GET /logs`
+**CLI:**  `list logs`
+
+### Get Log
+
+**REST:** `GET /logs/<name>`
+**CLI:**  `show log <name>`
+
+Response payload is raw log content (plain text).
+
+### Delete Log
+
+**REST:** `DELETE /logs/<name>`
+**CLI:**  `delete log <name>`
+
+### Clear Logs
+
+**REST:** `DELETE /logs`
+**CLI:**  `clear logs`
+
+---
+
+## 5. Storage / File System
+
+### Storage Status
+
+**REST:** `GET /storage`
+**CLI:**  `storage`
+
+### Format
+
+**REST:** `PUT /storage/format`  (body: `{ "confirm": true }`)
+**CLI:**  `format storage`
+
+### List Directory
+
+**REST:** `GET /storage/files`  or  `GET /storage/files/<path>`
+**CLI:**  `ls`  or  `ls /profiles`
+
+### Read File
+
+**REST:** `GET /storage/file/<path>`
+**CLI:**  `cat <path>`
+
+### Write File
+
+**REST:** `PUT /storage/file/<path>`  (body: raw file bytes)
+**CLI:**  not available — use REST
+
+### Delete File
+
+**REST:** `DELETE /storage/file/<path>`
+**CLI:**  `rm <path>`
+
+---
+
+## 6. System
+
+### System Status
+
+**REST:** `GET /system/status`
+**CLI:**  `sysstat`
+
+### Pool Statistics
+
+Returns static-pool utilisation for the API engine — current free
+counts, peak usage, and per-pool byte consumption. Useful for tuning
+the pool sizing constants in APITypes.h.
+
+**REST:** `GET /system/stats`
+**CLI:**  `pool`
+
 ```json
 {
-  "status": 200,
-  "path": "/logs",
-  "body": {
-    "logs": [
-      { "name": "2025-01-01.log", "size_bytes": 4096 },
-      { "name": "2025-01-02.log", "size_bytes": 2048 }
-    ]
+  "data": {
+    "pb": { "free": 8, "peak": 4, "count": 10, "bytes": 640 },
+    "payload": { "free": 52, "peak": 12, "count": 64, "bytes": 34816 },
+    "buffer": { "free": 6, "peak": 3, "count": 8, "bytes": 4160 }
   }
 }
 ```
 
-**Text shorthand:** `LOGS`
+### Get / Set Clock
 
----
+**REST:** `GET /system/clock`, `PUT /system/clock`
+**CLI:**  `clock`, `set clock <ISO8601>`
 
-### GET /logs/{name}
-Download a log file. Response body is plain text log content.
+### Debug Mode
 
-**Text shorthand:** `LOG <name>`
+When enabled, device GET responses include the raw driver status
+bitmask (`flags` field) for diagnostics.  Not persisted — resets on
+power cycle.
 
----
-
-### DELETE /logs/{name}
-Delete a log file.
-
-**Response:** `204 No Content`
-
-**Text shorthand:** `DELLOG <name>`
-
----
-
-### DELETE /logs
-Delete all log files.
-
-**Response:** `204 No Content`
-
-**Text shorthand:** `CLEARLOGS`
-
----
-
-## /storage
-
-### GET /storage
-Flash storage status.
-
-**Response:**
-```json
-{
-  "status": 200,
-  "path": "/storage",
-  "body": {
-    "total_bytes": 67108864,
-    "used_bytes": 1048576,
-    "free_bytes": 66060288
-  }
-}
-```
-
-**Text shorthand:** `STORAGE`
-
----
-
-### PUT /storage/format
-Format the flash filesystem. Destructive — deletes all profiles and logs.
-
-**Request:**
-```json
-{
-  "method": "PUT",
-  "path": "/storage/format",
-  "body": { "confirm": true }
-}
-```
+**REST:** `PUT /system/debug`  (body: `{ "on": true }`)
+**CLI:**  `debug on`, `debug off`
 
 **Response:** `200 OK`
 
----
+### System Stop
 
-## /system
+Gracefully stops any active reflow cycle, de-energises all hot-side
+drivers (heaters, fan, light), waits for TRIACs to commutate off, then
+isolates hot-side power via the relay. Non-destructive — no MCU reset.
 
-### GET /system/status
-System health and fault status.
+**REST:** `PUT /system/stop`
+**CLI:**  `sysstop`
 
-**Response:**
-```json
-{
-  "status": 200,
-  "path": "/system/status",
-  "body": {
-    "firmware_version": "1.0.0",
-    "uptime_s": 3600,
-    "faults": [],
-    "clock_source": "HSE|HSI",
-    "watchdog": true
-  }
-}
-```
+### Reset
 
-**Text shorthand:** `SYSSTAT`
+**REST:** `PUT /system/reset`
+**CLI:**  `reset`
+
+### Power Status
+
+**REST:** `GET /system/power`
+**CLI:**  `power`
+
+USB PD contract, input voltage, battery status.
 
 ---
 
-### GET /system/clock
-Get current RTC date and time.
+## 7. Push Events
 
-**Response:**
-```json
-{
-  "status": 200,
-  "path": "/system/clock",
-  "body": {
-    "datetime": "2025-01-01T12:00:00"
-  }
-}
-```
-
-**Text shorthand:** `CLOCK`
-
----
-
-### PUT /system/clock
-Set RTC date and time.
-
-**Request:**
-```json
-{
-  "method": "PUT",
-  "path": "/system/clock",
-  "body": {
-    "datetime": "2025-01-01T12:00:00"
-  }
-}
-```
-
-**Response:** `200 OK`
-
-**Text shorthand:** `SETCLOCK <ISO8601>`
-
----
-
-### PUT /system/reset
-Soft reset the MCU.
-
-**Response:** `200 OK` (may not be received if reset is immediate)
-
-**Text shorthand:** `RESET`
-
----
-
-## /power
-
-### GET /power
-Power delivery and supply status.
-
-**Response:**
-```json
-{
-  "status": 200,
-  "path": "/power",
-  "body": {
-    "usb_pd": {
-      "connected": true,
-      "voltage_v": 20.0,
-      "current_a": 3.0,
-      "power_w": 60.0,
-      "role": "sink|source|dual"
-    },
-    "input_voltage_v": 24.1,
-    "battery_present": false,
-    "battery_level_pct": null
-  }
-}
-```
-
-**Text shorthand:** `POWER`
-
----
-
-## /ui
-
-### PUT /ui/light
-Control the oven light.
-
-**Request:**
-```json
-{
-  "method": "PUT",
-  "path": "/ui/light",
-  "body": {
-    "on": true
-  }
-}
-```
-
-**Response:** `200 OK`
-
-**Text shorthand:** `LIGHT <on|off>`
-
----
-
-### PUT /ui/buzzer
-Trigger the buzzer.
-
-**Request:**
-```json
-{
-  "method": "PUT",
-  "path": "/ui/buzzer",
-  "body": {
-    "pattern": "beep|alarm|success|off",
-    "duration_ms": 500
-  }
-}
-```
-
-**Response:** `200 OK`
-
-**Text shorthand:** `BUZZ <pattern>`
-
----
-
-## Push Events
-
-The MCU sends unsolicited events during operation. All events use the same envelope:
+Unsolicited events sent at any time:
 
 ```json
-{ "event": "event_name", "data": {} }
+{ "event": "profileStage", "data": {} }
 ```
 
 | Event | Trigger | Data |
 |-------|---------|------|
-| `temperature` | Periodic during run | `{ oven, cjt1, cjt2, unit }` |
-| `profile_stage` | Stage transition | `{ stage, target_c, elapsed_s }` |
-| `profile_complete` | Profile finished | `{ name, duration_s }` |
+| `temperature` | Periodic during run | `{ oven, cjt1, cjt2 }` |
+| `profileStage` | Stage transition | `{ stage, target, elapsed }` |
+| `profileComplete` | Profile finished | `{ name, duration }` |
 | `fault` | Any fault condition | `{ code, description }` |
-| `estop` | Hardware or software ESTOP | `{ source: "hardware|software" }` |
-| `clock_fault` | CSS detects clock failure | `{ clock: "HSE|LSE" }` |
-| `thermocouple_fault` | Thermocouple error | `{ sensor, fault_type }` |
-| `power_change` | USB-PD negotiation change | `{ voltage_v, current_a, power_w }` |
-| `storage_low` | Flash nearly full | `{ free_bytes }` |
+| `estop` | Hardware or software ESTOP | `{ source }` |
+| `clockFault` | CSS detects clock failure | `{ clock }` |
+| `thermocoupleFault` | Thermocouple error | `{ sensor, faultType }` |
+| `powerChange` | USB-PD negotiation change | `{ voltage, current, power }` |
+| `storageLow` | Flash nearly full | `{ free }` |
+
+---
+
+## 8. Future Endpoints
+
+- **Firmware Management** — upload firmware images, select active image

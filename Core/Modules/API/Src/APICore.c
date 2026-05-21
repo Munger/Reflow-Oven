@@ -18,6 +18,8 @@
 #include "APITask.h"
 #include "APICore.h"
 #include "APITypes.h"
+#include "APICodec.h"
+#include "APIRoutes.h"
 #include "Platform.h"
 
 /// @brief Singly-linked FIFO queue for APIPB packet buffers.
@@ -48,6 +50,9 @@ static struct {
 
     APIPBQueue     inputQueue;
     APIBufferQueue outputQueue;
+
+    APIBufferQueue extraQueues[ 4 ];
+    int            extraQueueCount;
 
     APICoreStats   stats;
 } engine;
@@ -144,6 +149,24 @@ APIPBQueueRef GetInputQueue( void ) { return (APIPBQueueRef)&engine.inputQueue; 
 /// @return Queue reference for use with EnqueueBuffer() / DequeueBuffer().
 APIBufferQueueRef GetOutputQueue( void ) { return (APIBufferQueueRef)&engine.outputQueue; }
 
+/// @brief Allocate an additional APIBufferQueue from the pre-allocated pool.
+///
+/// Only the existing enqueue/dequeue functions access internal fields via the opaque
+/// pointer, so any APIBufferQueue allocated here is fully interoperable with them.
+/// Returns NULL if the pool is exhausted.
+///
+/// @return Opaque queue reference, or NULL.
+APIBufferQueueRef CreateBufferQueue( void ) {
+    APIBufferQueueRef q = NULL;
+    taskENTER_CRITICAL();
+    if ( engine.extraQueueCount < 4 ) {
+        q = (APIBufferQueueRef)&engine.extraQueues[ engine.extraQueueCount++ ];
+        memset( q, 0, sizeof( APIBufferQueue ) );
+    }
+    taskEXIT_CRITICAL();
+    return q;
+}
+
 /// @brief Acquire a zeroed APIPB from the pool.
 /// @return Pointer to a clean APIPB, or NULL if the pool is exhausted.
 APIPBPtr AcquirePB( void ) {
@@ -227,8 +250,8 @@ APIPBPtr DequeuePB( APIPBQueueRef q ) {
 
 /// @brief Append a serialised APIBuffer chain to an output queue and wake the API task.
 ///
-/// If the target is the output queue, notifies the API task with bit 0x02 so that
-/// USBSendAll() is called promptly. Works from task or ISR context.
+/// Notifies the API task so that USBCDCProcess() runs promptly. Works from task or
+/// ISR context.
 void EnqueueBuffer( APIBufferQueueRef q, APIBufferPtr b ) {
     if ( !q || !b ) return;
     b->next = NULL;
@@ -243,14 +266,12 @@ void EnqueueBuffer( APIBufferQueueRef q, APIBufferPtr b ) {
     q->count++;
     taskEXIT_CRITICAL();
 
-    if ( q == GetOutputQueue() ) {
-        if ( __get_IPSR() != 0 ) {
-            BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-            xTaskNotifyFromISR( APITaskHandle, 0x02, eSetBits, &xHigherPriorityTaskWoken );
-            portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
-        } else {
-            xTaskNotify( APITaskHandle, 0x02, eSetBits );
-        }
+    if ( __get_IPSR() != 0 ) {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        xTaskNotifyFromISR( APITaskHandle, 0x02, eSetBits, &xHigherPriorityTaskWoken );
+        portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
+    } else {
+        xTaskNotify( APITaskHandle, 0x02, eSetBits );
     }
 }
 
@@ -304,5 +325,25 @@ void ReleaseBuffer( APIBufferPtr b ) {
         memset( b->data, 0, kApiBufferSize );
         b->length = 0;
         _poolPush( (void**)&engine.bufferPool, b, &engine.stats.bufferFree );
+    }
+}
+
+/// @brief Dequeue and dispatch every pending request. Returns when the input queue is empty.
+///
+/// Calls the matched route handler for each request, releases the request PB,
+/// and queues the response for transmission. Registered as TaskOwnerAPI in the
+/// DriverRegistry and called from APITaskLoop.
+void APICoreProcess( void ) {
+    APIPBPtr req;
+    while ( ( req = GetNextRequest() ) != NULL ) {
+        if ( req->route && req->route->handler ) {
+            APIPBPtr resp = req->route->handler( req );
+            ReleasePB( req );
+            if ( resp ) {
+                APIQueueForSend( resp );
+            }
+        } else {
+            ReleasePB( req );
+        }
     }
 }

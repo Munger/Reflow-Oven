@@ -7,7 +7,7 @@
 /// as mutually-exclusive flag bits in the per-instance statusHandle event group;
 /// no separate state enum is needed. Temperature and tachometer data are read via
 /// I2CReadAsync() and stored directly in the DCFanController instance struct.
-/// DCFanSetSpeed() only writes to requestedLevel; the actual I2C duty-cycle
+/// DCFanSetSpeed() only writes to requestedPercent; the actual I2C duty-cycle
 /// register write happens inside DCFanProcess(). All status flags are set and
 /// cleared exclusively within DCFanProcess().
 ///
@@ -19,6 +19,7 @@
 
 #if FEATURE_BOARD_FAN
 
+#include <stdio.h>
 #include <string.h>
 
 #include "FreeRTOS.h"
@@ -27,6 +28,13 @@
 #include "I2CManager.h"
 #include "DCFan.h"
 #include "main.h"
+#include "cmsis_os.h"
+#include "event_groups.h"
+#include "TaskUtils.h"
+
+#if FEATURE_FILE_SYSTEM
+#include "FSUtils.h"
+#endif // FEATURE_FILE_SYSTEM
 
 static const uint16_t kEmc2101Addr = (uint16_t)I2CAddrEMC2101 << 1;
 
@@ -50,13 +58,9 @@ enum { kCalSteps = 10 };
 /// trigger FlagDCFanStatusUnderSpeed.
 static const uint8_t kPerformanceTolerancePct = 80U;
 
-/// @brief Expected RPM at each calibration step (10% duty increments).
-static const Rpm FanPerformanceTable[ kCalSteps ] = { 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000 };
-
-#if CALIBRATION
-/// @brief Stores measured RPM results for each calibration step (conditional compile).
-static Rpm CalibrationResults[ kCalSteps ];
-#endif
+/// @brief Default expected RPM at each calibration step (10% duty increments).
+/// Used when no calibration file has been persisted.
+static const Rpm kDefaultPerformanceTable[ kCalSteps ] = { 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000 };
 
 /// @brief Bitmask of all phase flags; used to determine whether the machine is idle.
 static const uint32_t kPhaseMask =
@@ -68,11 +72,13 @@ typedef struct DCFanController {
     DCFanID          id;             ///< Fan channel identifier
     I2CRef           i2c;            ///< I2C bus handle acquired at DCFanOpen()
     osEventFlagsId_t statusHandle;   ///< Per-instance event flag group
-    Permille         requestedLevel; ///< Last speed requested via DCFanSetSpeed()
+    StaticEventGroup_t statusBuffer; ///< Storage backing statusHandle (no-heap allocation)
+    Percent          requestedPercent; ///< Last speed requested via DCFanSetSpeed()
     Rpm              currentRpm;     ///< Most recently measured tachometer RPM
     Temperature      internalTemp;   ///< EMC2101 die temperature in milli-degrees C
     Temperature      externalTemp;   ///< EMC2101 remote thermistor temperature in milli-degrees C
-    volatile uint8_t buffer[ 2 ];    ///< Raw bytes from the last I2C read (ISR-written)
+    Rpm              performanceTable[ kCalSteps ]; ///< Calibrated RPM at each 10% duty step.
+    volatile uint8_t buffer[ 2 ];                   ///< Raw bytes from the last I2C read (ISR-written)
 } DCFanController, *DCFanControllerPtr;
 
 /// @brief All fan controller instances — indexed by DCFanID.
@@ -84,7 +90,8 @@ static void FanI2CCallback( bool success );
 void DCFanInitModule( void ) {
     memset( instances, 0, sizeof( instances ) );
     instances[ BoardCoolingFan ].id           = BoardCoolingFan;
-    instances[ BoardCoolingFan ].statusHandle = osEventFlagsNew( NULL );
+    instances[ BoardCoolingFan ].statusHandle = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &instances[ BoardCoolingFan ].statusBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
+    memcpy( instances[ BoardCoolingFan ].performanceTable, kDefaultPerformanceTable, sizeof( Rpm ) * kCalSteps );
     osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagBoardFanReady ) );
 }
 
@@ -108,6 +115,16 @@ DCFanRef DCFanOpen( DCFanID fanID, I2CRef i2c ) {
         uint8_t config = 0x00;
         if ( I2CWriteSync( i2c, kEmc2101Addr, kRegFanConfig, I2C_MEMADD_SIZE_8BIT, &config, 1, 100 ) == HAL_OK ) {
             osEventFlagsSet( fan->statusHandle, BIT( FlagDCFanStatusReady ) );
+
+#if FEATURE_FILE_SYSTEM
+            char   path[] = "/system/boardfan.profile";
+            size_t bytesRead = 0;
+            FSResult res = FSReadFile( path, 0, fan->performanceTable,
+                                       sizeof( Rpm ) * kCalSteps, &bytesRead );
+            if ( res != FSResultOk || bytesRead != sizeof( Rpm ) * kCalSteps ) {
+                memcpy( fan->performanceTable, kDefaultPerformanceTable, sizeof( Rpm ) * kCalSteps );
+            }
+#endif // FEATURE_FILE_SYSTEM
         }
     }
 
@@ -117,20 +134,20 @@ DCFanRef DCFanOpen( DCFanID fanID, I2CRef i2c ) {
 /// @brief Queue a fan speed update; the I2C write is applied by DCFanProcess() on the next tick.
 ///
 /// The speed is clamped to [0, 1000]. If the clamped value equals the current
-/// requestedLevel, the write is suppressed. The critical section ensures that
-/// requestedLevel and FlagDCFanSpeedPending are updated atomically.
+/// requestedPercent, the write is suppressed. The critical section ensures that
+/// requestedPercent and FlagDCFanSpeedPending are updated atomically.
 /// @note Actual hardware change happens in DCFanProcess(). Safe to call from any task.
-void DCFanSetSpeed( DCFanRef fan, Permille speed ) {
+void DCFanSetSpeed( DCFanRef fan, Percent percent ) {
     if ( fan == NULL ) return;
 
     uint32_t flags = osEventFlagsGet( fan->statusHandle );
     if ( !( flags & BIT( FlagDCFanStatusReady ) ) ) return;
 
-    Permille newLevel = ( speed > 1000 ) ? 1000 : speed;
-    if ( newLevel == fan->requestedLevel ) return;
+    Percent newLevel = ( percent > 100 ) ? 100 : percent;
+    if ( newLevel == fan->requestedPercent ) return;
 
     taskENTER_CRITICAL();
-    fan->requestedLevel = newLevel;
+    fan->requestedPercent = newLevel;
     taskEXIT_CRITICAL();
     osEventFlagsSet( fan->statusHandle, BIT( FlagDCFanSpeedPending ) );
 }
@@ -152,7 +169,7 @@ void DCFanProcess( void ) {
 
     if ( flags & BIT( FlagDCFanSpeedPending ) ) {
         osEventFlagsClear( fan->statusHandle, BIT( FlagDCFanSpeedPending ) );
-        uint8_t duty = (uint8_t)( ( (uint32_t)fan->requestedLevel * 255 ) / 1000 );
+        uint8_t duty = (uint8_t)( ( (uint32_t)fan->requestedPercent * 255 ) / 100 );
         if ( I2CWriteSync( fan->i2c, kEmc2101Addr, kRegFanSetting, I2C_MEMADD_SIZE_8BIT, &duty, 1, 50 ) != HAL_OK ) {
             osEventFlagsSet( fan->statusHandle, BIT( FlagDCFanStatusHardwareFault ) );
             osEventFlagsSet( FaultFlagsHandle, BIT( FlagBoardFanFault ) );
@@ -215,16 +232,16 @@ void DCFanProcess( void ) {
             clear |= BIT( FlagDCFanStatusSpinning );
         }
 
-        if ( fan->requestedLevel > 0 ) {
+        if ( fan->requestedPercent > 0 ) {
             if ( fan->currentRpm < 50 ) {
                 set |= ( BIT( FlagDCFanStatusStall ) | BIT( FlagDCFanStatusNoTach ) );
             } else {
                 clear |= ( BIT( FlagDCFanStatusStall ) | BIT( FlagDCFanStatusNoTach ) );
 
                 // Compare against performance table at the nearest duty step
-                uint8_t idx = (uint8_t)( fan->requestedLevel / 100 );
+                uint8_t idx = (uint8_t)( fan->requestedPercent / 10 );
                 if ( idx > 0 && idx <= kCalSteps ) {
-                    Rpm      expected = FanPerformanceTable[ idx - 1 ];
+                    Rpm      expected = fan->performanceTable[ idx - 1 ];
                     uint32_t floor    = ( (uint32_t)expected * kPerformanceTolerancePct ) / 100;
                     if ( fan->currentRpm < floor ) {
                         set |= BIT( FlagDCFanStatusUnderSpeed );
@@ -280,6 +297,58 @@ Temperature DCFanGetExternalTemp( DCFanRef fan ) {
 uint32_t DCFanGetStatus( DCFanRef fan ) {
     if ( fan == NULL ) return BIT( FlagDCFanStatusHardwareFault );
     return osEventFlagsGet( fan->statusHandle );
+}
+
+/// @brief Sweep all duty steps, record RPM at each, and update the performance table.
+///
+/// Drives the EMC2101 via synchronous I2C (bypassing the async state machine).
+/// Between steps the task suspends via WaitForFlags — zero CPU waste — and
+/// aborts early if FlagSystemAborted fires. After calibration the fan is left
+/// off and the new performance table is used for under-speed detection.
+void DCFanCalibrate( DCFanRef fan ) {
+    if ( !fan ) return;
+    DCFanControllerPtr inst = (DCFanControllerPtr)fan;
+    if ( !inst->i2c ) return;
+    Rpm              calResults[ kCalSteps ];
+
+    for ( uint8_t step = 1; step <= kCalSteps; step++ ) {
+        uint8_t duty = (uint8_t)( ( step * 255U ) / kCalSteps );
+        if ( I2CWriteSync( inst->i2c, kEmc2101Addr, kRegFanSetting,
+                           I2C_MEMADD_SIZE_8BIT, &duty, 1, 50 ) != HAL_OK ) {
+            break;
+        }
+
+        // Suspend until RPM settles or system aborts
+        if ( WaitForFlags( FaultFlagsHandle, BIT( FlagSystemAborted ), 500 ) ) {
+            duty = 0;
+            I2CWriteSync( inst->i2c, kEmc2101Addr, kRegFanSetting,
+                          I2C_MEMADD_SIZE_8BIT, &duty, 1, 50 );
+            return;
+        }
+
+        uint8_t tach[ 2 ] = { 0, 0 };
+        if ( I2CReadSync( inst->i2c, kEmc2101Addr, kRegTachLsb, I2C_MEMADD_SIZE_8BIT,
+                          tach, 2, 50 ) == HAL_OK ) {
+            uint16_t reading = (uint16_t)( tach[ 1 ] << 8 | tach[ 0 ] );
+            calResults[ step - 1 ] = ( reading == 0xFFFF || reading == 0 )
+                ? 0
+                : (Rpm)( kTachConversionConst / reading );
+        }
+    }
+
+    uint8_t off = 0;
+    I2CWriteSync( inst->i2c, kEmc2101Addr, kRegFanSetting,
+                  I2C_MEMADD_SIZE_8BIT, &off, 1, 50 );
+
+    for ( uint8_t i = 0; i < kCalSteps; i++ ) {
+        inst->performanceTable[ i ] = calResults[ i ];
+    }
+
+#if FEATURE_FILE_SYSTEM
+    char path[] = "/system/boardfan.profile";
+    FSEnsureDir( "/system", 0 );
+    FSWriteFile( path, 0, inst->performanceTable, sizeof( Rpm ) * kCalSteps );
+#endif // FEATURE_FILE_SYSTEM
 }
 
 #endif // FEATURE_BOARD_FAN

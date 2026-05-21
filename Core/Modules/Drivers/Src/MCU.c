@@ -18,6 +18,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "event_groups.h"
 #include "adc.h"
 #include "MCU.h"
 
@@ -42,6 +43,7 @@ enum { kIxTemp = 4, kIxVref = 5, kIxVbat = 6 };
 typedef struct MCUInstance {
     MCUID            id;            ///< Instance identifier
     osEventFlagsId_t statusHandle;  ///< Private status event flag group
+    StaticEventGroup_t statusBuffer; ///< Storage backing statusHandle (no-heap allocation)
 #if FEATURE_VCC_MONITOR || FEATURE_BATTERY_MONITOR || FEATURE_MCU_TEMP_MONITOR
     Voltage          lastVcc;       ///< Last computed VCC supply voltage (millivolts)
 #endif // FEATURE_VCC_MONITOR || FEATURE_BATTERY_MONITOR || FEATURE_MCU_TEMP_MONITOR
@@ -64,7 +66,7 @@ static MCUInstance instances[ MCUCount ];
 void MCUInitModule( void ) {
     memset( instances, 0, sizeof( instances ) );
     instances[ MCU0 ].id           = MCU0;
-    instances[ MCU0 ].statusHandle = osEventFlagsNew( NULL );
+    instances[ MCU0 ].statusHandle = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &instances[ MCU0 ].statusBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
     osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagMCUReady ) );
 }
 

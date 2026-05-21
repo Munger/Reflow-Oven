@@ -15,7 +15,7 @@
 /// name is taken from the filename.
 ///
 ///   ty<str>   Stage label (optional, no spaces).
-///   tc<int>   Target temperature in milli-°C.
+///   tc<int>   Target temperature in milli-°C. 0 = no target — the stage function starts immediately.
 ///   rr<int>   Ramp rate in milli-°C/s, signed.
 ///   to<int>   Timeout ms waiting for target temperature. 0 = no timeout.
 ///   hv<int>   Hold duration in ms once target is reached.
@@ -38,6 +38,7 @@
 #include "ReflowProfile.h"
 #include "FSFile.h"
 #include "FSUtils.h"
+#include "SafeStdLib.h"
 
 // ============================================================================
 // Format constants
@@ -118,8 +119,7 @@ static void ParseToken( const char* token, ReflowStagePtr s ) {
 /// and link it at @p tail.
 static void ParseLine( const char* line, ReflowStagePtr* tail ) {
     static char buf[ kLineBufSize ];
-    strncpy( buf, line, sizeof( buf ) - 1 );
-    buf[ sizeof( buf ) - 1 ] = '\0';
+    strlcpy_safe( buf, line, sizeof( buf ) );
 
     ReflowStagePtr s = pvPortMalloc( sizeof( ReflowStage ) );
     if ( !s ) return;

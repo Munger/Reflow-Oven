@@ -44,6 +44,7 @@ typedef enum {
     FlagInterruptsEnabled,        ///< GPIO edge interrupts have been unmasked.
     FlagSupervisorServiceRequest, ///< ManagerTask: a supervisor action is requested.
     FlagSystemAborted,            ///< Software interrupt has fired; system is aborting.
+    FlagAPIDebug,                 ///< API diagnostic detail toggle — include driver status flags in hardware GET responses.
 
     SystemFlagsCount              ///< Number of flags — must stay <= 24.
 } SystemFlagBit;
@@ -78,6 +79,7 @@ typedef enum {
     FlagHeaterBottomReady,       ///< Bottom heating element TRIAC channel ready. — FEATURE_HEATER_BOTTOM
     FlagOvenLightReady,          ///< Oven interior light TRIAC channel ready.  — FEATURE_OVEN_LIGHT
     FlagOvenControllerReady,     ///< Oven controller initialised and all device refs valid.
+    FlagUSBCDCReady,             ///< USB CDC driver initialised.
     FlagRotaryEncoderReady,      ///< Rotary encoder (AS5600) initialised and I2C ref valid. — FEATURE_ROTARY_ENCODER
 
     DeviceFlagsCount             ///< Number of flags — must stay <= 24.
@@ -112,6 +114,7 @@ typedef enum {
     FlagHeaterBottomFault,       ///< Bottom heating element TRIAC configuration error. — FEATURE_HEATER_BOTTOM
     FlagOvenLightFault,          ///< Oven interior light TRIAC configuration error.    — FEATURE_OVEN_LIGHT
     FlagOvenControllerFault,     ///< Oven controller regulation fault or required sensor failure.
+    FlagUSBCFault,                ///< USB CDC hardware or transmit error.
 
     FaultFlagsCount              ///< Number of flags — must stay <= 24.
 } FaultFlagsBit;
@@ -227,6 +230,7 @@ typedef enum {
     BIT( FlagMCUReady )        | \
     BIT( FlagPowerManagerReady ) | \
     BIT( FlagOvenControllerReady ) | \
+    BIT( FlagUSBCDCReady )     | \
     DEVBIT_USBPD               | \
     DEVBIT_TC1                 | \
     DEVBIT_TC2                 | \
@@ -353,6 +357,7 @@ typedef enum {
     BIT( FlagI2CFault )        | \
     BIT( FlagSPIFault )        | \
     BIT( FlagOvenControllerFault ) | \
+    BIT( FlagUSBCFault )       | \
     FAULTBIT_USBPD             | \
     FAULTBIT_TC1               | \
     FAULTBIT_TC2               | \
@@ -380,7 +385,6 @@ extern osEventFlagsId_t DeviceStatusFlagsHandle;
 
 /// @brief Active fault event flag group. Created by app_freertos.c at startup.
 extern osEventFlagsId_t FaultFlagsHandle;
-
 
 _Static_assert( SystemFlagsCount <= 24, "SystemStatusFlags out of bounds" );
 _Static_assert( DeviceFlagsCount <= 24, "DeviceStatusFlags out of bounds" );

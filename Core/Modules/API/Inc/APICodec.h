@@ -15,6 +15,7 @@
 
 #include <stdint.h>
 
+#include "APICore.h"
 #include "APITypes.h"
 
 /// @brief Initialise (or reset) the incremental stream parser. Call once at startup.
@@ -43,5 +44,21 @@ APIPBPtr GetNextRequest( void );
 ///
 /// @param[in] pb  APIPB to serialise and release; may be NULL.
 void     APIQueueForSend( APIPBPtr pb );
+
+/// @brief Set the output queue that SerialiseAPI / SerialiseCLI will enqueue to.
+///
+/// Call before dispatching requests when responses must be routed to a specific
+/// CDC instance's output queue rather than the default global one. Pass the queue
+/// returned by CreateBufferQueue() or GetOutputQueue().
+///
+/// @param[in] q  Target output queue; NULL restores the default.
+void                SetCurrentOutputQueue( APIBufferQueueRef q );
+
+/// @brief Return the currently set output queue, or the default if none was set.
+/// @return Active APIBufferQueueRef (never NULL — falls back to GetOutputQueue()).
+APIBufferQueueRef   GetCurrentOutputQueue( void );
+
+/// @brief Restore the default output queue (equivalent to SetCurrentOutputQueue(NULL)).
+void                ResetCurrentOutputQueue( void );
 
 #endif // APICODEC_H

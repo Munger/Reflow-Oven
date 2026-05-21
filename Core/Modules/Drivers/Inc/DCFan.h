@@ -73,10 +73,10 @@ void               DCFanInitModule( void );
 DCFanRef           DCFanOpen( DCFanID fanID, I2CRef i2c );
 
 /// @brief Queue a fan speed request; the I2C write is applied by DCFanProcess() on the next tick.
-/// @param[in] fan   Handle returned by DCFanOpen().
-/// @param[in] speed Target duty cycle in permille (0 = off, 1000 = 100%).
+/// @param[in] fan     Handle returned by DCFanOpen().
+/// @param[in] percent Target speed in percent (0 = off, 100 = full).
 /// @note Actual hardware change happens in DCFanProcess(). Safe to call from any task.
-void               DCFanSetSpeed( DCFanRef fan, Permille speed );
+void               DCFanSetSpeed( DCFanRef fan, Percent percent );
 
 /// @brief Return the most recently measured fan speed.
 /// @param[in] fan Handle returned by DCFanOpen().

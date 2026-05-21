@@ -48,9 +48,10 @@ enum { kStageNameLen = 16 };
 
 /// @brief Optional special action triggered when this stage enters its hold phase.
 typedef enum {
-    ReflowFnNone = 0,      ///< Normal hold — time or temperature criterion only.
-    ReflowFnCalFan,        ///< Run AC fan calibration sequence during hold.
-    ReflowFnCalThermal,    ///< Run thermal calibration sequence during hold.
+    ReflowFnNone = 0,         ///< Normal hold — time or temperature criterion only.
+    ReflowFnCalFan,           ///< Run AC fan calibration sequence during hold.
+    ReflowFnCalBoardFan,      ///< Run board cooling fan calibration sequence during hold.
+    ReflowFnCalThermal,       ///< Run thermal calibration sequence during hold.
 } ReflowFn;
 
 /// @brief A single stage within a reflow profile — a heap-allocated linked list node.
@@ -64,7 +65,7 @@ typedef struct ReflowStage {
     DurationMs          timeoutMs;     ///< Maximum ms to wait for target temperature. 0 = no timeout.
     DurationMs          holdMs;        ///< Milliseconds to hold once target temperature is reached.
     Permille            fanSpeed;      ///< Target oven fan speed for this stage (0–1000).
-    DurationMs          accelTimeMs;   ///< Time to ramp from the previous fan speed to fanSpeed. 0 = instant.
+    DurationMs          accelTimeMs;   ///< Time to accelerate from the previous fan speed to fanSpeed. 0 = instant.
     bool                heaterTop;     ///< Enable top heating element (tag h0=).
     bool                heaterRear;    ///< Enable rear convection element (tag h1=).
     bool                heaterBottom;  ///< Enable bottom heating element (tag h2=).

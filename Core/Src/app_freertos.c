@@ -38,6 +38,8 @@
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
+typedef StaticTask_t osStaticThreadDef_t;
+typedef StaticQueue_t osStaticMessageQDef_t;
 typedef StaticSemaphore_t osStaticSemaphoreDef_t;
 typedef StaticEventGroup_t osStaticEventGroupDef_t;
 /* USER CODE BEGIN PTD */
@@ -60,55 +62,97 @@ typedef StaticEventGroup_t osStaticEventGroupDef_t;
 /* USER CODE END Variables */
 /* Definitions for ManagerTask */
 osThreadId_t ManagerTaskHandle;
+uint32_t ManagerTaskBuffer[ 384 ];
+osStaticThreadDef_t ManagerTaskControlBlock;
 const osThreadAttr_t ManagerTask_attributes = {
   .name = "ManagerTask",
+  .stack_mem = &ManagerTaskBuffer[0],
+  .stack_size = sizeof(ManagerTaskBuffer),
+  .cb_mem = &ManagerTaskControlBlock,
+  .cb_size = sizeof(ManagerTaskControlBlock),
   .priority = (osPriority_t) osPriorityHigh,
-  .stack_size = 384 * 4
 };
 /* Definitions for DeviceTask */
 osThreadId_t DeviceTaskHandle;
+uint32_t DeviceTaskBuffer[ 512 ];
+osStaticThreadDef_t DeviceTaskControlBlock;
 const osThreadAttr_t DeviceTask_attributes = {
   .name = "DeviceTask",
+  .stack_mem = &DeviceTaskBuffer[0],
+  .stack_size = sizeof(DeviceTaskBuffer),
+  .cb_mem = &DeviceTaskControlBlock,
+  .cb_size = sizeof(DeviceTaskControlBlock),
   .priority = (osPriority_t) osPriorityNormal,
-  .stack_size = 512 * 4
 };
 /* Definitions for APITask */
 osThreadId_t APITaskHandle;
+uint32_t APITaskBuffer[ 512 ];
+osStaticThreadDef_t APITaskControlBlock;
 const osThreadAttr_t APITask_attributes = {
   .name = "APITask",
+  .stack_mem = &APITaskBuffer[0],
+  .stack_size = sizeof(APITaskBuffer),
+  .cb_mem = &APITaskControlBlock,
+  .cb_size = sizeof(APITaskControlBlock),
   .priority = (osPriority_t) osPriorityNormal,
-  .stack_size = 512 * 4
 };
 /* Definitions for LoggingTask */
 osThreadId_t LoggingTaskHandle;
+uint32_t LoggingTaskBuffer[ 256 ];
+osStaticThreadDef_t LoggingTaskControlBlock;
 const osThreadAttr_t LoggingTask_attributes = {
   .name = "LoggingTask",
+  .stack_mem = &LoggingTaskBuffer[0],
+  .stack_size = sizeof(LoggingTaskBuffer),
+  .cb_mem = &LoggingTaskControlBlock,
+  .cb_size = sizeof(LoggingTaskControlBlock),
   .priority = (osPriority_t) osPriorityBelowNormal,
-  .stack_size = 256 * 4
 };
 /* Definitions for USBPDTask */
 osThreadId_t USBPDTaskHandle;
+uint32_t USBPDTaskBuffer[ 512 ];
+osStaticThreadDef_t USBPDTaskControlBlock;
 const osThreadAttr_t USBPDTask_attributes = {
   .name = "USBPDTask",
+  .stack_mem = &USBPDTaskBuffer[0],
+  .stack_size = sizeof(USBPDTaskBuffer),
+  .cb_mem = &USBPDTaskControlBlock,
+  .cb_size = sizeof(USBPDTaskControlBlock),
   .priority = (osPriority_t) osPriorityAboveNormal,
-  .stack_size = 512 * 4
 };
 /* Definitions for ReflowTask */
 osThreadId_t ReflowTaskHandle;
+uint32_t ReflowTaskBuffer[ 256 ];
+osStaticThreadDef_t ReflowTaskControlBlock;
 const osThreadAttr_t ReflowTask_attributes = {
   .name = "ReflowTask",
+  .stack_mem = &ReflowTaskBuffer[0],
+  .stack_size = sizeof(ReflowTaskBuffer),
+  .cb_mem = &ReflowTaskControlBlock,
+  .cb_size = sizeof(ReflowTaskControlBlock),
   .priority = (osPriority_t) osPriorityNormal,
-  .stack_size = 256 * 4
 };
 /* Definitions for SensorsQueue */
 osMessageQueueId_t SensorsQueueHandle;
+uint8_t SensorsQueueBuffer[ 3 * 48 ];
+osStaticMessageQDef_t SensorsQueueControlBlock;
 const osMessageQueueAttr_t SensorsQueue_attributes = {
-  .name = "SensorsQueue"
+  .name = "SensorsQueue",
+  .cb_mem = &SensorsQueueControlBlock,
+  .cb_size = sizeof(SensorsQueueControlBlock),
+  .mq_mem = &SensorsQueueBuffer,
+  .mq_size = sizeof(SensorsQueueBuffer)
 };
 /* Definitions for LoggingQueue */
 osMessageQueueId_t LoggingQueueHandle;
+uint8_t LoggingQueueBuffer[ 16 * sizeof( uint16_t ) ];
+osStaticMessageQDef_t LoggingQueueControlBlock;
 const osMessageQueueAttr_t LoggingQueue_attributes = {
-  .name = "LoggingQueue"
+  .name = "LoggingQueue",
+  .cb_mem = &LoggingQueueControlBlock,
+  .cb_size = sizeof(LoggingQueueControlBlock),
+  .mq_mem = &LoggingQueueBuffer,
+  .mq_size = sizeof(LoggingQueueBuffer)
 };
 /* Definitions for I2CBusSem */
 osSemaphoreId_t I2CBusSemHandle;

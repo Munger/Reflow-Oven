@@ -14,11 +14,15 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "event_groups.h"
 #include "main.h"
 #include "PowerManager.h"
 
 /// @brief Private event flag group for power manager status.
 static osEventFlagsId_t powerManagerStatus;
+
+/// @brief Storage backing powerManagerStatus (no-heap allocation).
+static StaticEventGroup_t powerManagerStatusBuffer;
 
 /// @brief Shadow word holding the current logical power state.
 ///
@@ -38,7 +42,7 @@ static uint32_t lastZCDTick = 0;
 /// then drives both output rails to their safe (off) state. Signals PMReady in
 /// DeviceStatusFlagsHandle.
 void PMInitModule( void ) {
-    powerManagerStatus = osEventFlagsNew( NULL );
+    powerManagerStatus = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &powerManagerStatusBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
 
     if ( HAL_GPIO_ReadPin( MAINS_PWR_N_GPIO_Port, MAINS_PWR_N_Pin ) == GPIO_PIN_RESET ) {
         pmStatus |= BIT( FlagPMMainsPower );

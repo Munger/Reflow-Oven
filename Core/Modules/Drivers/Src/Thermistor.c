@@ -21,6 +21,7 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "event_groups.h"
 #include "Thermistor.h"
 #include "adc.h"
 
@@ -80,6 +81,7 @@ typedef struct Thermistor {
     ThermistorID        id;             ///< Channel identifier
     uint8_t             bufferIndex;    ///< Index into AdcDataBuffer for this channel
     osEventFlagsId_t    flags;          ///< Per-instance event flags; FlagTMInvertedDivider set at init
+    StaticEventGroup_t  flagsBuffer;    ///< Storage backing flags (no-heap allocation)
     uint32_t            globalFaultBit; ///< BIT(FlagXxx) to set/clear in FaultFlagsHandle
     const Temperature*  table;          ///< Linearisation lookup table for this channel
 } Thermistor, *ThermistorPtr;
@@ -127,7 +129,7 @@ void TMInitModule( void ) {
     pAdcHandle = &ADC1Handle;
 
     for ( uint8_t i = 0; i < ThermistorCount; i++ ) {
-        instances[ i ].flags = osEventFlagsNew( NULL );
+        instances[ i ].flags = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &instances[ i ].flagsBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
         osEventFlagsSet( DeviceStatusFlagsHandle, BIT( kThermistorReadyBit[ i ] ) );
     }
 #if FEATURE_THERMISTOR_OVEN

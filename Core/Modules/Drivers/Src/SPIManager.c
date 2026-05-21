@@ -12,6 +12,8 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "FreeRTOS.h"
+#include "event_groups.h"
 #include "SPIManager.h"
 #include "spi.h"
 
@@ -24,6 +26,7 @@ typedef struct SPIInstance {
     SPI_HandleTypeDef* hspi;            ///< Bound HAL handle
     osSemaphoreId_t    mutex;           ///< Semaphore protecting exclusive bus access
     osEventFlagsId_t   statusHandle;    ///< Per-instance diagnostic event flags
+    StaticEventGroup_t statusBuffer;    ///< Storage backing statusHandle (no-heap allocation)
     SPICallback        currentCallback; ///< Callback to invoke on transfer completion
     GPIO_TypeDef*      currentCsPort;   ///< CS port for the active transfer
     uint16_t           currentCsPin;    ///< CS pin for the active transfer
@@ -54,7 +57,7 @@ void SPIInitModule( void ) {
     spi->id            = SPIBus1;
     spi->hspi          = &hspi1;
     spi->mutex         = SPIBusSemHandle;
-    spi->statusHandle  = osEventFlagsNew( NULL );
+    spi->statusHandle  = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &spi->statusBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
     spi->currentCallback = NULL;
 
     if ( spi->statusHandle != NULL ) {

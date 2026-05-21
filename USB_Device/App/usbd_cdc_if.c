@@ -23,7 +23,7 @@
 
 /* USER CODE BEGIN INCLUDE */
 
-#include "APITask.h"
+#include "USBCDC.h"
 #include "apicodec.h"
 
 /* USER CODE END INCLUDE */

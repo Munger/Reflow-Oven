@@ -22,6 +22,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "cmsis_os.h"
+#include "event_groups.h"
 
 #include "ACLight.h"
 
@@ -32,13 +33,14 @@ static const uint8_t kBurstWindow = 20U;
 typedef struct ACLightInstance {
     TriacRef         triac;           ///< TRIAC channel handle acquired at ACLightOpen()
     osEventFlagsId_t statusHandle;    ///< Per-instance event flag group
-    Permille         requestedPower;  ///< Last power requested via ACLightSetPower()
+    StaticEventGroup_t statusBuffer;  ///< Storage backing statusHandle (no-heap allocation)
+    uint8_t          requestedPercent;///< Last brightness requested via ACLightSetPower()
 } ACLightInstance, *ACLightInstancePtr;
 
 /// @brief All AC light instances — indexed by ACLightID.
 static ACLightInstance instances[ ACLightCount ];
 
-static void DriveAtPower( ACLightInstancePtr light, Permille power );
+static void DriveAtPower( ACLightInstancePtr light, uint8_t percent );
 
 // ============================================================================
 // Public API
@@ -48,7 +50,7 @@ static void DriveAtPower( ACLightInstancePtr light, Permille power );
 void ACLightInitModule( void ) {
     memset( instances, 0, sizeof( instances ) );
     for ( uint8_t i = 0; i < ACLightCount; i++ ) {
-        instances[ i ].statusHandle = osEventFlagsNew( NULL );
+        instances[ i ].statusHandle = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &instances[ i ].statusBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
     }
     osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagOvenLightReady ) );
 }
@@ -70,19 +72,19 @@ ACLightRef ACLightOpen( ACLightID id ) {
 
 /// @brief Queue a power request; applied to the TRIAC by ACLightProcess() on the next tick.
 ///
-/// Clamps @p power to [0, 1000] and sets FlagACLightPowerPending to signal
-/// ACLightProcess(). Safe to call from any task context; the power value is
+/// Clamps @p percent to [0, 100] and sets FlagACLightPowerPending to signal
+/// ACLightProcess(). Safe to call from any task context; the value is
 /// written inside a critical section.
-void ACLightSetPower( ACLightRef light, Permille power ) {
+void ACLightSetPower( ACLightRef light, Percent percent ) {
     if ( light == NULL ) return;
     ACLightInstancePtr inst = (ACLightInstancePtr)light;
 
     if ( !( osEventFlagsGet( inst->statusHandle ) & BIT( FlagACLightStatusReady ) ) ) return;
 
-    Permille clamped = ( power > 1000 ) ? 1000 : power;
+    uint8_t clamped = ( percent > 100 ) ? 100 : percent;
 
     taskENTER_CRITICAL();
-    inst->requestedPower = clamped;
+    inst->requestedPercent = clamped;
     taskEXIT_CRITICAL();
     osEventFlagsSet( inst->statusHandle, BIT( FlagACLightPowerPending ) );
 }
@@ -112,7 +114,7 @@ void ACLightProcess( void ) {
         if ( !( flags & BIT( FlagACLightPowerPending  ) ) ) continue;
 
         osEventFlagsClear( inst->statusHandle, BIT( FlagACLightPowerPending ) );
-        DriveAtPower( inst, inst->requestedPower );
+        DriveAtPower( inst, inst->requestedPercent );
 
         if ( TriacGetStatus( inst->triac ) & BIT( FlagTriacStatusConfigError ) ) {
             osEventFlagsSet( inst->statusHandle, BIT( FlagACLightStatusHardwareFault ) );
@@ -122,7 +124,7 @@ void ACLightProcess( void ) {
             osEventFlagsClear( FaultFlagsHandle,   BIT( FlagOvenLightFault             ) );
         }
 
-        if ( inst->requestedPower > 0 ) {
+        if ( inst->requestedPercent > 0 ) {
             osEventFlagsSet( inst->statusHandle, BIT( FlagACLightStatusOn ) );
         } else {
             osEventFlagsClear( inst->statusHandle, BIT( FlagACLightStatusOn ) );
@@ -134,26 +136,26 @@ void ACLightProcess( void ) {
 // Internal — TRIAC drive
 // ============================================================================
 
-/// @brief Apply the requested power level to the TRIAC via burst firing.
+/// @brief Apply the requested brightness to the TRIAC via burst firing.
 ///
 /// Uses zero-cross burst fire (phaseDelayUs = 0). burstOn is rounded to the
-/// nearest half-cycle and clamped to at least 1 for any non-zero power request,
-/// so a very low permille value produces one half-cycle on rather than silent off.
+/// nearest half-cycle and clamped to at least 1 for any non-zero request,
+/// so a very dim setting produces one half-cycle on rather than silent off.
 ///
-/// @param[in] light      Instance pointer (always non-NULL at call site).
-/// @param[in] power      Power in permille (0 = off, 1000 = full).
-static void DriveAtPower( ACLightInstancePtr light, Permille power ) {
-    if ( power == 0 ) {
+/// @param[in] light   Instance pointer (always non-NULL at call site).
+/// @param[in] percent Brightness in percent (0 = off, 100 = full).
+static void DriveAtPower( ACLightInstancePtr light, uint8_t percent ) {
+    if ( percent == 0 ) {
         TriacOff( light->triac );
         return;
     }
 
-    if ( power >= 1000 ) {
+    if ( percent >= 100 ) {
         TriacOn( light->triac );
         return;
     }
 
-    uint8_t burstOn = (uint8_t)( ( power * kBurstWindow + 500U ) / 1000U );
+    uint8_t burstOn = (uint8_t)( ( percent * kBurstWindow + 50U ) / 100U );
     if ( burstOn == 0 ) burstOn = 1;
 
     TriacDriveParams p;

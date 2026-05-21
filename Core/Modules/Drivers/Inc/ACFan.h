@@ -86,12 +86,12 @@ void ACFanAttachEncoder( ACFanRef fan, RotaryEncoderID encoderID );
 
 /// @brief Queue a speed request; applied to the TRIAC by ACFanProcess() on the next tick.
 ///
-/// Ignored if FlagACFanCalibrationRequired is set. Speed is clamped to [0, 1000].
+/// Ignored if FlagACFanCalibrationRequired is set. Percent is clamped to [0, 100].
 ///
-/// @param[in] fan   Handle returned by ACFanOpen().
-/// @param[in] speed Desired speed in permille of motorMaxRPM (0 = off, 1000 = full).
+/// @param[in] fan     Handle returned by ACFanOpen().
+/// @param[in] percent Desired speed in percent of motorMaxRPM (0 = off, 100 = full).
 /// @note Safe to call from any task context.
-void     ACFanSetSpeed( ACFanRef fan, Permille speed );
+void     ACFanSetSpeed( ACFanRef fan, Percent percent );
 
 /// @brief Return the most recently measured fan speed from the encoder.
 /// @param[in] fan Handle returned by ACFanOpen().

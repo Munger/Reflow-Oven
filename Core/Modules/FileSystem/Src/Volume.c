@@ -22,6 +22,7 @@
 #include <string.h>
 #include "Volume.h"
 #include "FSInternal.h"
+#include "SafeStdLib.h"
 #include "lfs.h"
 
 // ============================================================================

@@ -88,6 +88,7 @@ typedef struct FlashInstance {
     FlashID          id;            ///< Device identifier
     SPIRef           spi;           ///< SPI bus handle acquired at FlashOpen()
     osEventFlagsId_t statusHandle;  ///< Per-instance diagnostic event flags
+    StaticEventGroup_t statusBuffer; ///< Storage backing statusHandle (no-heap allocation)
     uint8_t          progBuf[ kProgBufSize ]; ///< Scratch buffer for page program commands
 } FlashInstance, *FlashInstancePtr;
 
@@ -178,7 +179,7 @@ void FlashInitModule( void ) {
     memset( instances, 0, sizeof( instances ) );
     for ( uint8_t i = 0; i < FlashCount; i++ ) {
         instances[ i ].id           = (FlashID)i;
-        instances[ i ].statusHandle = osEventFlagsNew( NULL );
+        instances[ i ].statusHandle = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &instances[ i ].statusBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
     }
     osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagFlashReady ) );
 }

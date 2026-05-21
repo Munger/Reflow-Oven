@@ -19,6 +19,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "cmsis_os.h"
+#include "event_groups.h"
 
 #include "Features.h"
 #include "OvenController.h"
@@ -36,6 +37,7 @@ static const uint8_t kBurstWindow = 20U;
 typedef struct OvenControllerInstance {
     OvenControllerID  id;
     osEventFlagsId_t  statusHandle;
+    StaticEventGroup_t statusBuffer; ///< Storage backing statusHandle (no-heap allocation)
     OvenControlPBPtr  pb;           ///< Caller's PB; held for the duration of the run
     Temperature       rampTarget;   ///< Rate-limited intermediate setpoint
     uint32_t          lastTickMs;   ///< Kernel tick count at the last process call
@@ -84,7 +86,7 @@ void OCInitModule( void ) {
     memset( instances, 0, sizeof( instances ) );
     for ( uint8_t i = 0; i < OvenControllerCount; i++ ) {
         instances[ i ].id           = (OvenControllerID)i;
-        instances[ i ].statusHandle = osEventFlagsNew( NULL );
+        instances[ i ].statusHandle = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &instances[ i ].statusBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
         osEventFlagsSet( DeviceStatusFlagsHandle, BIT( kReadyBit[ i ] ) );
     }
 #if FEATURE_HEATER_TOP

@@ -35,11 +35,16 @@ enum {
 typedef enum {
     APIStatusOK             = 200, ///< Request succeeded.
     APIStatusCreated        = 201, ///< Resource created successfully.
+    APIStatusAccepted       = 202, ///< Accepted — async operation started; poll for result.
     APIStatusNoContent     = 204, ///< Request succeeded; no body to return.
     APIStatusBadRequest    = 400, ///< Malformed request or invalid parameters.
+    APIStatusForbidden     = 403, ///< Action not permitted in current oven state.
     APIStatusNotFound      = 404, ///< No route matched the incoming request.
     APIStatusConflict       = 409, ///< Request conflicts with current state.
-    APIStatusInternalError = 500  ///< Handler encountered an internal error.
+    APIStatusUnprocessable = 422, ///< Request body is syntactically valid but semantically invalid.
+    APIStatusInternalError = 500, ///< Handler encountered an internal error.
+    APIStatusNotImplemented = 501, ///< Route is valid but the requested hardware is not fitted on this board.
+    APIStatusUnavailable   = 503  ///< Service temporarily unavailable (e.g. filesystem busy).
 } APIStatus;
 
 /// @brief Serialisation syntax declared in each route entry.
@@ -81,6 +86,8 @@ typedef struct Payload {
     char            data[ kApiPayloadSize ]; ///< Raw data bytes for this chunk.
 } Payload, *PayloadPtr;
 
+typedef const struct APIRoute *APIRoutePtr;
+
 /// @brief Protocol buffer — the unit of work flowing through the API pipeline.
 ///
 /// The stream parser populates one APIPB per complete incoming request.
@@ -91,7 +98,7 @@ typedef struct APIPB {
     struct APIPB*          next;                          ///< Queue linkage — must remain first.
     APIStatus              status;                        ///< Response status code written by the handler.
     uint8_t                reqString[ kApiRequestMaxLen ]; ///< Full sanitised (lowercased, space-collapsed) request line captured by the stream parser.
-    const struct APIRoute* route;                         ///< Matched route entry, or NULL if not found.
+    APIRoutePtr            route;                         ///< Matched route entry, or NULL if not found.
     PayloadPtr             payload;                       ///< Head of the response body payload chain.
     APISyntax              syntax;                        ///< Serialisation format from the matched route.
     TerminatorType         terminator;                    ///< Line-ending style from the incoming request.

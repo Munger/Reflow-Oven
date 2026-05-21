@@ -50,6 +50,9 @@ typedef uint16_t Rpm;
 /// A value of 1000 represents 100.0 %, 500 represents 50.0 %, etc.
 typedef uint16_t Permille;
 
+/// @brief Percentage, range 0–100.
+typedef uint8_t Percent;
+
 /// @brief Time duration or offset in milliseconds.
 typedef uint32_t DurationMs;
 

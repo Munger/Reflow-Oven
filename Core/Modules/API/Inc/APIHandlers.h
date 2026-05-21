@@ -1,11 +1,16 @@
 /// @file APIHandlers.h
 ///
-/// @brief API handler function declarations.
+/// @brief Umbrella header including all per-group handler declarations.
 ///
-/// Declares the `APIHandler` function-pointer typedef and every handler stub
-/// that can be matched by the route table in `apiroutes.h`. All handlers are
-/// defined as `__weak` symbols in `apihandlers.c`; application code provides
-/// strong overrides to implement actual business logic.
+/// The route table in APIRoutes.h includes this header to resolve handler
+/// function pointer types. Application code may include individual handler
+/// headers or this umbrella for convenience.
+///
+/// All handlers follow the same contract:
+///   APIPBPtr handler( APIPBPtr pb );
+/// The handler reads the request from @p pb, builds a response by writing
+/// into a newly acquired APIPB, and returns it. The caller (APITaskLoop)
+/// releases the request PB separately.
 ///
 /// @copyright Copyright (c) 2026 Tim Hosking
 /// @see https://github.com/munger
@@ -14,59 +19,30 @@
 #ifndef APIHANDLERS_H
 #define APIHANDLERS_H
 
+#include "Platform.h"
 #include "APITypes.h"
 
+/// @brief Build a status-only response PB inheriting syntax and terminator from @p request.
+///
+/// Acquires a new APIPB, sets its status and copies syntax/terminator from the
+/// incoming request so the serialiser produces a correctly-formatted response.
+/// The caller owns the returned PB and must queue or release it.
+///
+/// @param[in] request  The incoming request PB (syntax/terminator source).
+/// @param[in] status   HTTP-like status code to set on the response.
+/// @return A new APIPB with the given @p status, or NULL if the pool is exhausted.
+APIPBPtr APIResponseStatus( APIPBPtr request, APIStatus status );
+
 /// @brief Function-pointer type for all API route handlers.
-///
-/// The handler reads the request from @p pb, builds a response by allocating
-/// a new APIPB from the pool, and returns it. The caller releases the request
-/// PB separately.
-///
-/// @param[in] pb  The matched protocol buffer (owned by the caller).
-/// @return A new APIPB with status, syntax, terminator, and optional payload
-///         set, or NULL if no response should be sent.
 typedef APIPBPtr ( *APIHandler )( APIPBPtr pb );
 
-// Oven control
-
-APIPBPtr HandlerOvenStatus( APIPBPtr pb );
-APIPBPtr HandlerOvenRun( APIPBPtr pb );
-APIPBPtr HandlerOvenStop( APIPBPtr pb );
-APIPBPtr HandlerOvenEstop( APIPBPtr pb );
-
-APIPBPtr HandlerManualEnable( APIPBPtr pb );
-APIPBPtr HandlerManualDisable( APIPBPtr pb );
-APIPBPtr HandlerManualHeater( APIPBPtr pb );
-APIPBPtr HandlerManualFan( APIPBPtr pb );
-
-APIPBPtr HandlerSensorsTemp( APIPBPtr pb );
-APIPBPtr HandlerSensorsMains( APIPBPtr pb );
-
-APIPBPtr HandlerProfilesList( APIPBPtr pb );
-APIPBPtr HandlerProfileGet( APIPBPtr pb );
-APIPBPtr HandlerProfileCreate( APIPBPtr pb );
-APIPBPtr HandlerProfileUpdate( APIPBPtr pb );
-APIPBPtr HandlerProfileDelete( APIPBPtr pb );
-
-APIPBPtr HandlerConfigGet( APIPBPtr pb );
-APIPBPtr HandlerConfigPut( APIPBPtr pb );
-
-APIPBPtr HandlerLogsList( APIPBPtr pb );
-APIPBPtr HandlerLogGet( APIPBPtr pb );
-APIPBPtr HandlerLogDelete( APIPBPtr pb );
-APIPBPtr HandlerLogsClear( APIPBPtr pb );
-
-APIPBPtr HandlerStorageGet( APIPBPtr pb );
-APIPBPtr HandlerStorageFormat( APIPBPtr pb );
-
-APIPBPtr HandlerSystemStatus( APIPBPtr pb );
-APIPBPtr HandlerClockGet( APIPBPtr pb );
-APIPBPtr HandlerClockPut( APIPBPtr pb );
-APIPBPtr HandlerSystemReset( APIPBPtr pb );
-
-APIPBPtr HandlerPowerGet( APIPBPtr pb );
-
-APIPBPtr HandlerUiLight( APIPBPtr pb );
-APIPBPtr HandlerUiBuzzer( APIPBPtr pb );
+#include "DeviceHandler.h"
+#include "ReflowHandler.h"
+#include "ProfileHandler.h"
+#include "ConfigHandler.h"
+#include "LogsHandler.h"
+#include "StorageHandler.h"
+#include "FileHandler.h"
+#include "SystemHandler.h"
 
 #endif // APIHANDLERS_H

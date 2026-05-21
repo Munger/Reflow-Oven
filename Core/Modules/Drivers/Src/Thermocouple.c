@@ -27,6 +27,7 @@
 #include "adc.h"
 #include "main.h"
 #include "SPIManager.h"   // opened internally by TCOpen()
+#include "event_groups.h"
 #include "TaskUtils.h"
 #include "Thermistor.h"
 #include "Thermocouple.h"
@@ -62,6 +63,7 @@ typedef struct Thermocouple {
     ThermocoupleID     id;             ///< Channel identifier
     SPIRef             spi;            ///< SPI bus handle acquired at TCOpen()
     osEventFlagsId_t   statusHandle;   ///< Private event flag group for this instance
+    StaticEventGroup_t statusBuffer;   ///< Storage backing statusHandle (no-heap allocation)
     GPIO_TypeDef*      csPort;         ///< SPI chip-select GPIO port
     uint16_t           csPin;          ///< SPI chip-select GPIO pin
     uint16_t           drdyPin;        ///< Data-ready GPIO pin (matched in DRDY ISR)
@@ -136,11 +138,11 @@ static void TCReadRegs( ThermocoupleRef tc, MaxRegister reg, uint8_t* buffer, ui
 /// Safe to call before SPIInitModule() runs.
 void TCInitModule( void ) {
 #if FEATURE_THERMOCOUPLE_1
-    instances[ Thermocouple1 ].statusHandle = osEventFlagsNew( NULL );
+    instances[ Thermocouple1 ].statusHandle = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &instances[ Thermocouple1 ].statusBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
     osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagThermocouple1Ready ) );
 #endif // FEATURE_THERMOCOUPLE_1
 #if FEATURE_THERMOCOUPLE_2
-    instances[ Thermocouple2 ].statusHandle = osEventFlagsNew( NULL );
+    instances[ Thermocouple2 ].statusHandle = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &instances[ Thermocouple2 ].statusBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
     osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagThermocouple2Ready ) );
 #endif // FEATURE_THERMOCOUPLE_2
 }

@@ -23,6 +23,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "cmsis_os.h"
+#include "event_groups.h"
 
 #include "ACFan.h"
 #if FEATURE_AC_FAN_CALIBRATION
@@ -43,20 +44,21 @@ typedef struct ACFanInstance {
     RotaryEncoderRef encoder;        ///< Rotary encoder handle acquired at ACFanOpen()
 #endif // FEATURE_ROTARY_ENCODER
     osEventFlagsId_t statusHandle;   ///< Per-instance event flag group
-    Permille         requestedSpeed; ///< Last speed requested via ACFanSetSpeed()
+    StaticEventGroup_t statusBuffer; ///< Storage backing statusHandle (no-heap allocation)
+    uint8_t          requestedPercent;///< Last speed requested via ACFanSetSpeed()
     ACFanProfileMap  profileMap;     ///< Calibration profile loaded from flash at ACFanOpen()
 } ACFanInstance, *ACFanInstancePtr;
 
 /// @brief All AC fan instances — indexed by ACFanID.
 static ACFanInstance instances[ ACFanCount ];
 
-static void DriveAtSpeed( ACFanInstancePtr fan, Permille requestedPm );
+static void DriveAtSpeed( ACFanInstancePtr fan, Percent percent );
 
 /// @brief Allocate per-instance resources. Does not access hardware or the filesystem.
 void ACFanInitModule( void ) {
     memset( instances, 0, sizeof( instances ) );
     instances[ OvenFan ].id           = OvenFan;
-    instances[ OvenFan ].statusHandle = osEventFlagsNew( NULL );
+    instances[ OvenFan ].statusHandle = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &instances[ OvenFan ].statusBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
     osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagOvenFanReady ) );
 }
 
@@ -106,17 +108,17 @@ void ACFanAttachEncoder( ACFanRef fan, RotaryEncoderID encoderID ) {
 
 /// @brief Queue a speed request; applied to the TRIAC by ACFanProcess() on the next tick.
 ///
-/// Ignored if FlagACFanCalibrationRequired is set. Speed is clamped to [0, 1000].
-void ACFanSetSpeed( ACFanRef fan, Permille speed ) {
+/// Ignored if FlagACFanCalibrationRequired is set. Percent is clamped to [0, 100].
+void ACFanSetSpeed( ACFanRef fan, Percent percent ) {
     if ( fan == NULL ) return;
 
     uint32_t flags = osEventFlagsGet( fan->statusHandle );
     if ( flags & BIT( FlagACFanCalibrationRequired ) ) return;
 
-    Permille clamped = ( speed > 1000 ) ? 1000 : speed;
+    uint8_t clamped = ( percent > 100 ) ? 100 : percent;
 
     taskENTER_CRITICAL();
-    fan->requestedSpeed = clamped;
+    fan->requestedPercent = clamped;
     taskEXIT_CRITICAL();
     osEventFlagsSet( fan->statusHandle, BIT( FlagACFanSpeedPending ) );
 }
@@ -132,7 +134,7 @@ void ACFanProcess( void ) {
 
         if ( flags & BIT( FlagACFanSpeedPending ) ) {
             osEventFlagsClear( fan->statusHandle, BIT( FlagACFanSpeedPending ) );
-            DriveAtSpeed( fan, fan->requestedSpeed );
+            DriveAtSpeed( fan, fan->requestedPercent );
 
             if ( TriacGetStatus( fan->triac ) & BIT( FlagTriacStatusConfigError ) ) {
                 osEventFlagsSet( fan->statusHandle, BIT( FlagACFanStatusHardwareFault ) );
@@ -156,7 +158,7 @@ void ACFanProcess( void ) {
                 clear |= BIT( FlagACFanStatusStall );
             } else {
                 clear |= BIT( FlagACFanStatusSpinning );
-                if ( fan->requestedSpeed > 0 ) {
+                if ( fan->requestedPercent > 0 ) {
                     set |= BIT( FlagACFanStatusStall );
                 } else {
                     clear |= BIT( FlagACFanStatusStall );
@@ -234,7 +236,8 @@ static int32_t Interp( int32_t low, int32_t high, Permille fractionPm ) {
 ///
 /// Mirrors the logic in ACFanDrive() from ACFanTuning but uses the instance's
 /// own TRIAC handle rather than the tuning module's internal static.
-static void DriveAtSpeed( ACFanInstancePtr fan, Permille requestedPm ) {
+static void DriveAtSpeed( ACFanInstancePtr fan, Percent percent ) {
+    Permille requestedPm = (Permille)percent * 10U;
     ACFanProfileMapPtr map = &fan->profileMap;
 
     if ( requestedPm == 0 ) {

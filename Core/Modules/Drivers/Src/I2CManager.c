@@ -11,6 +11,8 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
+#include "FreeRTOS.h"
+#include "event_groups.h"
 #include "I2CManager.h"
 #include "i2c.h"
 
@@ -23,6 +25,7 @@ typedef struct I2CInstance {
     I2C_HandleTypeDef* hi2c;           ///< Bound HAL handle
     osSemaphoreId_t    mutex;           ///< Semaphore protecting exclusive bus access
     osEventFlagsId_t   statusHandle;    ///< Per-instance diagnostic event flags
+    StaticEventGroup_t statusBuffer;    ///< Storage backing statusHandle (no-heap allocation)
     I2CCallback        currentCallback; ///< Callback to invoke when the current transfer completes
 } I2CInstance, *I2CInstancePtr;
 
@@ -48,7 +51,7 @@ void I2CInitModule( void ) {
     i2c->id              = I2CBus1;
     i2c->hi2c            = &hi2c1;
     i2c->mutex           = I2CBusSemHandle;
-    i2c->statusHandle    = osEventFlagsNew( NULL );
+    i2c->statusHandle    = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &i2c->statusBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
     i2c->currentCallback = NULL;
 
     if ( i2c->statusHandle != NULL ) {

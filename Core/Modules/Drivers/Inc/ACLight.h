@@ -59,12 +59,12 @@ ACLightRef ACLightOpen( ACLightID id );
 
 /// @brief Queue a power request; applied to the TRIAC by ACLightProcess() on the next tick.
 ///
-/// Power is clamped to [0, 1000]. Ignored if FlagACLightStatusReady is not set.
+/// Power is clamped to [0, 100]. Ignored if FlagACLightStatusReady is not set.
 ///
-/// @param[in] light  Handle returned by ACLightOpen().
-/// @param[in] power  Desired power in permille (0 = off, 1000 = full).
+/// @param[in] light   Handle returned by ACLightOpen().
+/// @param[in] percent Desired brightness in percent (0 = off, 100 = full).
 /// @note Safe to call from any task context.
-void      ACLightSetPower( ACLightRef light, Permille power );
+void      ACLightSetPower( ACLightRef light, Percent percent );
 
 /// @brief Return the full status bitmask for the light instance.
 ///

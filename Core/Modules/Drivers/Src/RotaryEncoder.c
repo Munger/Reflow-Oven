@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "event_groups.h"
 #include "I2CAddress.h"
 #include "RotaryEncoder.h"
 #include "I2CManager.h"
@@ -47,6 +48,7 @@ typedef enum {
 /// @brief Full internal state of one encoder instance.
 typedef struct RotaryEncoderInstance {
     osEventFlagsId_t statusHandle;       ///< Per-instance status and diagnostic flags
+    StaticEventGroup_t statusBuffer;     ///< Storage backing statusHandle (no-heap allocation)
     I2CRef           i2c;                ///< I2C bus handle acquired at REOpen()
     uint16_t         last_raw;           ///< Previous 12-bit angle value for delta computation
     uint32_t         last_tick;          ///< Kernel tick at the time of the last angle sample
@@ -80,7 +82,7 @@ static void REI2CCallback( bool success ) {
 void REInitModule( void ) {
     memset( instances, 0, sizeof( instances ) );
     for ( uint8_t i = 0; i < RotaryEncoderCount; i++ ) {
-        instances[ i ].statusHandle = osEventFlagsNew( NULL );
+        instances[ i ].statusHandle = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &instances[ i ].statusBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
         instances[ i ].last_tick    = osKernelGetTickCount();
     }
     osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagRotaryEncoderReady ) );

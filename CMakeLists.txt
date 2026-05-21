@@ -21,6 +21,13 @@ add_executable(${CMAKE_PROJECT_NAME})
 include(FetchContent)
 
 FetchContent_Declare(
+  cjson
+  URL                        https://github.com/DaveGamble/cJSON/archive/refs/tags/v1.7.18.zip
+  SOURCE_DIR                 ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/Third_Party/cJSON
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+
+FetchContent_Declare(
   littlefs
   URL                        https://github.com/littlefs-project/littlefs/archive/refs/tags/v2.9.3.zip
   SOURCE_DIR                 ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/Third_Party/littlefs
@@ -28,6 +35,7 @@ FetchContent_Declare(
 )
 
 # Populate folders manually to avoid running their problematic CMakeLists.txt
+FetchContent_Populate(cjson)
 FetchContent_Populate(littlefs)
 
 # 2. SUBDIRECTORIES
@@ -39,6 +47,14 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/API/Src/APICore.c
     Core/Modules/API/Src/APICodec.c
     Core/Modules/API/Src/APIHandlers.c
+    Core/Modules/API/Handlers/Src/DeviceHandler.c
+    Core/Modules/API/Handlers/Src/ReflowHandler.c
+    Core/Modules/API/Handlers/Src/ProfileHandler.c
+    Core/Modules/API/Handlers/Src/ConfigHandler.c
+    Core/Modules/API/Handlers/Src/LogsHandler.c
+    Core/Modules/API/Handlers/Src/StorageHandler.c
+    Core/Modules/API/Handlers/Src/FileHandler.c
+    Core/Modules/API/Handlers/Src/SystemHandler.c
     Core/Modules/Drivers/Src/Interrupts.c
     Core/Modules/Drivers/Src/I2CManager.c
     Core/Modules/Drivers/Src/SPIManager.c
@@ -46,6 +62,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/Drivers/Src/ACLight.c
     Core/Modules/Drivers/Src/Buzzer.c
     Core/Modules/Drivers/Src/DCFan.c
+    Core/Modules/Drivers/Src/DriverRegistry.c
     Core/Modules/Drivers/Src/Flash.c
     Core/Modules/Drivers/Src/MCU.c
     Core/Modules/Drivers/Src/OvenController.c
@@ -55,6 +72,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/Drivers/Src/ThermistorI2C.c
     Core/Modules/Drivers/Src/Thermocouple.c
     Core/Modules/Drivers/Src/Triac.c
+    Core/Modules/Drivers/Src/USBCDC.c
     Core/Modules/Drivers/Src/USBPowerDelivery.c
     Core/Modules/Tasks/Src/APITask.c
     Core/Modules/Tasks/Src/DeviceTask.c
@@ -81,6 +99,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/FileSystem/Src/FSUtils.c
 
     # Add third-party source files directly to your target
+    Middlewares/Third_Party/cJSON/cJSON.c
     Middlewares/Third_Party/littlefs/lfs.c
     Middlewares/Third_Party/littlefs/lfs_util.c
 )
@@ -88,6 +107,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 # 4. INCLUDE DIRECTORIES
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/API/Inc
+    Core/Modules/API/Handlers/Inc
     Core/Modules/Includes
     Core/Modules/Tasks/Inc
     Core/Modules/Drivers/Inc
@@ -95,13 +115,16 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Modules/Reflow/Inc
     Core/Modules/FileSystem/Inc
     Core/Modules/FileSystem/Src
+    Middlewares/Third_Party/cJSON
     Middlewares/Third_Party/littlefs
 )
 
 # 5. COMPILE DEFINITIONS
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
-    # Redirect LittleFS internal allocation to the FreeRTOS heap so all dynamic
-    # memory in the project comes from the same pool.
+    # Redirect third-party library allocations to the FreeRTOS heap so all
+    # dynamic memory in the project comes from the same pool.
+    CJSON_MALLOC=pvPortMalloc
+    CJSON_FREE=vPortFree
     LFS_MALLOC=pvPortMalloc
     LFS_FREE=vPortFree
 )

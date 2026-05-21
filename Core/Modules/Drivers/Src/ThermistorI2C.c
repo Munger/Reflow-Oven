@@ -20,6 +20,7 @@
 
 #include <string.h>
 
+#include "event_groups.h"
 #include "I2CAddress.h"
 #include "ThermistorI2C.h"
 #include "I2CManager.h"
@@ -42,6 +43,7 @@ typedef struct ThermistorI2C {
     I2CRef           i2c;            ///< I2C bus handle acquired at TMI2COpen()
     NTCEntryPtr      ntcTable;       ///< Optional 33-entry NTC lookup table; NULL → linear approx
     osEventFlagsId_t statusHandle;   ///< Private event flag group for this instance
+    StaticEventGroup_t statusBuffer; ///< Storage backing statusHandle (no-heap allocation)
     AdcRaw           latestRaw;      ///< Most recently received 12-bit ADC value
     TMState          state;          ///< Current state machine position (task context only)
     volatile uint8_t buffer[ 2 ];   ///< Raw bytes from the last I2C read (ISR-written)
@@ -63,7 +65,7 @@ static void TMI2CCallback( bool success ) {
 void TMI2CInitModule( void ) {
     memset( instances, 0, sizeof( instances ) );
     instances[ ThermistorI2C1 ].id           = ThermistorI2C1;
-    instances[ ThermistorI2C1 ].statusHandle = osEventFlagsNew( NULL );
+    instances[ ThermistorI2C1 ].statusHandle = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &instances[ ThermistorI2C1 ].statusBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
     osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagThermistorHeatsinkReady ) );
 }
 

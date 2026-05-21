@@ -17,11 +17,14 @@
 /// @see https://github.com/munger
 /// @par Licence: MIT
 
-#include <ctype.h>
 #include <string.h>
 
 #include "APICodec.h"
 #include "APICore.h"
+
+static inline char safe_tolower( char c ) {
+    return ( c >= 'A' && c <= 'Z' ) ? ( c + 32 ) : c;
+}
 
 #define APICODEC_C
 #include "APIRoutes.h"
@@ -31,12 +34,14 @@
 /// All fields are zeroed and candidates re-populated by ResetParser(). The struct
 /// is kept as a single static instance because the stream is single-producer.
 typedef struct {
-    APIPBPtr   wipPB;                              ///< APIPB being assembled; NULL between requests.
-    uint32_t   matchPos;                           ///< Number of pattern characters consumed so far.
-    uint32_t   candidateCount;                     ///< Number of live route candidates.
-    uint8_t    candidates[ API_ROUTE_TABLE_SIZE ]; ///< Indices into apiRouteTable still in contention.
-    bool       inPayload;   ///< Match resolved with no %; remainder goes into payload chain.
-    bool       inRaw;       ///< Past the % in a pattern; bypasses candidate pruning.
+    APIPBPtr        wipPB;                              ///< APIPB being assembled; NULL between requests.
+    uint32_t        matchPos;                           ///< Number of pattern characters consumed so far.
+    uint32_t        candidateCount;                     ///< Number of live route candidates.
+    uint8_t         candidates[ API_ROUTE_TABLE_SIZE ]; ///< Indices into apiRouteTable still in contention.
+    APIRoutePtr     bestMatch;                          ///< Most recently fully-matched non-% pattern; fallback if no wildcard wins.
+    uint32_t        bestMatchPos;                       ///< matchPos at which bestMatch was saved (for reqString rollback).
+    bool            inPayload;   ///< Match resolved with no %; remainder goes into payload chain.
+    bool            inRaw;       ///< Past the % in a pattern; bypasses candidate pruning.
     uint32_t   reqIdx;      ///< Write index into wipPB->reqString.
     PayloadPtr lastPayload; ///< Tail of the payload chain being built.
     uint32_t   payloadIdx;  ///< Write index into the current payload node.
@@ -53,6 +58,9 @@ typedef struct {
 
 /// @brief Persistent parser state singleton.
 static ParseState ps;
+
+/// @brief Current output queue routing context — overrides GetOutputQueue() when set.
+static APIBufferQueueRef currentOutputQueue = NULL;
 
 // Internal Prototypes
 static void        ResetParser( void );
@@ -135,6 +143,16 @@ static void TerminateRequest( TerminatorType term ) {
 
     ps.wipPB->terminator = term;
 
+    // No %-wildcard or bestMatch resolution happened — apply bestMatch now
+    if ( !ps.wipPB->route && ps.bestMatch ) {
+        ps.wipPB->route  = ps.bestMatch;
+        ps.wipPB->syntax = ps.bestMatch->syntax;
+        ps.wipPB->reqString[ ps.bestMatchPos ] = '\0';
+        ps.reqIdx        = ps.bestMatchPos;
+        ps.inPayload     = true;
+        ps.bestMatch     = NULL;
+    }
+
     if ( ps.inPayload && ps.lastPayload ) {
         ps.lastPayload->data[ ps.payloadIdx ] = '\0';
     }
@@ -197,7 +215,7 @@ void ProcessStream( const uint8_t* data, uint32_t len ) {
         }
 
         // Normalise to lowercase
-        char n = (char)tolower( (unsigned char)c );
+        char n = safe_tolower( c );
 
         // Collapse space runs
         if ( n == ' ' ) {
@@ -245,7 +263,7 @@ void ProcessStream( const uint8_t* data, uint32_t len ) {
         bool     resolved  = false;
 
         for ( uint32_t j = 0; j < ps.candidateCount; j++ ) {
-            const APIRoute* route   = &apiRouteTable[ ps.candidates[ j ] ];
+            APIRoutePtr route   = &apiRouteTable[ ps.candidates[ j ] ];
             const char*     pattern = route->pattern;
 
             if ( !pattern ) continue;
@@ -253,7 +271,7 @@ void ProcessStream( const uint8_t* data, uint32_t len ) {
             size_t patLen = strlen( pattern );
             if ( ps.matchPos >= patLen ) continue;
 
-            char p = (char)tolower( (unsigned char)pattern[ ps.matchPos ] );
+            char p = safe_tolower( pattern[ ps.matchPos ] );
 
             if ( p == '%' ) {
                 // Wildcard: resolve immediately; reqString already contains every byte
@@ -276,7 +294,9 @@ void ProcessStream( const uint8_t* data, uint32_t len ) {
         ps.candidateCount = surviving;
         ps.matchPos++;
 
-        // Check if any surviving candidate is now fully matched
+        // Save any fully-matched non-% pattern as bestMatch fallback.
+        // Keep pruning remaining candidates — a longer pattern with a %
+        // wildcard that extends this prefix may still win.
         for ( uint32_t j = 0; j < ps.candidateCount; j++ ) {
             const APIRoute* route   = &apiRouteTable[ ps.candidates[ j ] ];
             const char*     pattern = route->pattern;
@@ -284,24 +304,29 @@ void ProcessStream( const uint8_t* data, uint32_t len ) {
             if ( !pattern ) continue;
 
             if ( ps.matchPos == strlen( pattern ) ) {
-                ps.wipPB->route   = route;
-                ps.wipPB->syntax  = route->syntax;
-                ps.inPayload      = true;
-                ps.candidateCount = 0;
-                resolved          = true;
+                ps.bestMatch    = route;
+                ps.bestMatchPos = ps.matchPos;
                 break;
             }
         }
 
-        // No candidates and no resolution: unknown route
+        // All candidates exhausted with no wildcard resolution:
+        // fall back to bestMatch if one was saved.
         if ( ps.candidateCount == 0 && !ps.inPayload && !ps.inRaw ) {
-            if ( ps.wipPB ) {
+            if ( ps.bestMatch ) {
+                ps.wipPB->route  = ps.bestMatch;
+                ps.wipPB->syntax = ps.bestMatch->syntax;
+                ps.wipPB->reqString[ ps.bestMatchPos ] = '\0';
+                ps.reqIdx        = ps.bestMatchPos;
+                ps.inPayload     = true;
+                ps.bestMatch     = NULL;
+            } else {
                 ps.wipPB->status = APIStatusNotFound;
                 ps.wipPB->route  = NULL;
                 EnqueuePB( GetInputQueue(), ps.wipPB );
                 ps.wipPB = NULL;
+                ResetParser();
             }
-            ResetParser();
         }
     }
 }
@@ -325,11 +350,16 @@ static inline const char* GetStatusMessage( APIStatus status ) {
     switch ( status ) {
         case APIStatusOK:             return "OK";
         case APIStatusCreated:        return "Created";
+        case APIStatusAccepted:       return "Accepted";
         case APIStatusNoContent:     return "No Content";
         case APIStatusBadRequest:    return "Bad Request";
+        case APIStatusForbidden:     return "Forbidden";
         case APIStatusNotFound:      return "Not Found";
         case APIStatusConflict:       return "Conflict";
+        case APIStatusUnprocessable: return "Unprocessable";
+        case APIStatusNotImplemented: return "Not Implemented";
         case APIStatusInternalError: return "Internal Error";
+        case APIStatusUnavailable:   return "Unavailable";
         default:                        return "Unknown";
     }
 }
@@ -447,7 +477,7 @@ static bool SerialiseAPI( APIPBPtr pb ) {
         return false;
     }
 
-    EnqueueBuffer( GetOutputQueue(), state.head );
+    EnqueueBuffer( GetCurrentOutputQueue(), state.head );
     return true;
 }
 
@@ -488,7 +518,7 @@ static bool SerialiseCLI( APIPBPtr pb ) {
         return false;
     }
 
-    EnqueueBuffer( GetOutputQueue(), state.head );
+    EnqueueBuffer( GetCurrentOutputQueue(), state.head );
     return true;
 }
 
@@ -503,4 +533,19 @@ void APIQueueForSend( APIPBPtr pb ) {
     }
 
     ReleasePB( pb );
+}
+
+/// @brief Set the output queue routing context.
+void SetCurrentOutputQueue( APIBufferQueueRef q ) {
+    currentOutputQueue = q;
+}
+
+/// @brief Return the active output queue, falling back to the global default.
+APIBufferQueueRef GetCurrentOutputQueue( void ) {
+    return currentOutputQueue ? currentOutputQueue : GetOutputQueue();
+}
+
+/// @brief Reset to the default global output queue.
+void ResetCurrentOutputQueue( void ) {
+    currentOutputQueue = NULL;
 }

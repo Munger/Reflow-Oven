@@ -21,6 +21,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "cmsis_os.h"
+#include "event_groups.h"
 #include "main.h"
 #include "I2CAddress.h"
 #include "I2CManager.h"
@@ -55,6 +56,7 @@ typedef struct USBPDInstance {
     USBPDID           id;                                      ///< Instance identifier
     I2CRef            i2c;                                     ///< I2C bus handle acquired at USBPDOpen()
     osEventFlagsId_t  statusHandle;                            ///< Private diagnostic event flag group
+    StaticEventGroup_t statusBuffer;                           ///< Storage backing statusHandle (no-heap allocation)
     USBPDPowerProfile activeProfile;                           ///< Currently negotiated or applied profile
     Voltage           cachedVoltage;                           ///< Last measured VBUS voltage (millivolts)
     Current           cachedCurrent;                           ///< Last measured VBUS current (milliamps)
@@ -83,7 +85,7 @@ static const USBPDPowerProfile localSourceProfiles[] = {
 /// hardware — that happens in USBPDOpen() once a bus reference is available.
 void USBPDInitModule( void ) {
     instances[ USBPD1 ].id           = USBPD1;
-    instances[ USBPD1 ].statusHandle = osEventFlagsNew( NULL );
+    instances[ USBPD1 ].statusHandle = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &instances[ USBPD1 ].statusBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
 
     LL_UCPD_Enable( UCPD1 );
     HAL_GPIO_WritePin( PD_SRC_PON_GPIO_Port, PD_SRC_PON_Pin, GPIO_PIN_RESET );

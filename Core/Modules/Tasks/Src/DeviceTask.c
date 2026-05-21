@@ -2,9 +2,10 @@
 ///
 /// @brief Device task — periodic driver process loop implementation.
 ///
-/// DeviceTaskLoop() calls the Process() function of every hardware driver module
-/// in a deterministic sequence on each tick. The order is chosen to minimise
-/// inter-module latency: power management and MCU first, then sensors and actuators.
+/// DeviceTaskLoop() iterates the DriverRegistry for entries owned by TaskOwnerDevice
+/// and calls each entry's process() function in table order. The ordering is
+/// chosen to minimise inter-module latency: power management and MCU first,
+/// then sensors, then actuators, then the control loop.
 ///
 /// @copyright Copyright (c) 2026 Tim Hosking
 /// @see https://github.com/munger
@@ -12,20 +13,15 @@
 
 #include "Features.h"
 #include "DeviceTask.h"
-#include "MCU.h"
-#include "OvenController.h"
-#include "PowerManager.h"
+#include "DriverRegistry.h"
 #include "SystemStatusFlags.h"
 #include "I2CManager.h"
-#include "Buzzer.h"
+#if FEATURE_BOARD_FAN
 #include "DCFan.h"
-#include "RotaryEncoder.h"
-#include "ACFan.h"
-#include "ACLight.h"
-#include "Thermistor.h"
+#endif
+#if FEATURE_THERMISTOR_HEATSINK
 #include "ThermistorI2C.h"
-#include "Thermocouple.h"
-#include "Triac.h"
+#endif
 
 /// @brief Initialise the Device task — waits for system initialisation then opens I2C peripherals.
 ///
@@ -48,38 +44,17 @@ void DeviceTaskInit( void ) {
 #endif // FEATURE_THERMISTOR_HEATSINK
 }
 
-/// @brief Call the Process() function for every driver module in sequence.
+/// @brief Call the Process() function for every DeviceTask-owned driver in table order.
 ///
 /// Each Process() function performs all hardware I/O, updates cached state, and
 /// sets/clears status and fault flags for its respective module. No hardware access
 /// occurs outside of these calls in this task.
 void DeviceTaskLoop( void ) {
-    PMProcess();
-    MCUProcess();
-#if FEATURE_BUZZER
-    BuzzerProcess();
-#endif // FEATURE_BUZZER
-#if FEATURE_BOARD_FAN
-    DCFanProcess();
-#endif // FEATURE_BOARD_FAN
-#if FEATURE_ROTARY_ENCODER
-    REProcess();
-#endif // FEATURE_ROTARY_ENCODER
-#if FEATURE_THERMISTORS
-    TMProcess();
-#endif // FEATURE_THERMISTORS
-#if FEATURE_THERMISTOR_HEATSINK
-    TMI2CProcess();
-#endif // FEATURE_THERMISTOR_HEATSINK
-#if FEATURE_THERMOCOUPLES
-    TCProcess();
-#endif // FEATURE_THERMOCOUPLES
-    OCProcess();
-#if FEATURE_OVEN_FAN
-    ACFanProcess();
-#endif // FEATURE_OVEN_FAN
-#if FEATURE_OVEN_LIGHT
-    ACLightProcess();
-#endif // FEATURE_OVEN_LIGHT
-    TriacProcess();
+    int count = 0;
+    DriverEntryPtr table = DriverTable( &count );
+    for ( int i = 0; i < count; i++ ) {
+        if ( table[ i ].task == TaskOwnerDevice && table[ i ].process ) {
+            table[ i ].process();
+        }
+    }
 }

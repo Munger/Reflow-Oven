@@ -26,6 +26,13 @@ typedef struct APIBufferQueue* APIBufferQueueRef;
 /// @brief Initialise pools and queues. Call once at startup before any other APICore function.
 void                           APICoreInit( void );
 
+/// @brief Allocate an additional APIBufferQueue from a small pre-allocated pool.
+/// @return An opaque queue reference, or NULL if the pool is exhausted.
+APIBufferQueueRef              CreateBufferQueue( void );
+
+/// @brief Dequeue and dispatch all pending requests. Returns when the input queue is empty.
+void                           APICoreProcess( void );
+
 /// @brief Return the input queue — received requests awaiting dispatch.
 APIPBQueueRef                  GetInputQueue( void );
 

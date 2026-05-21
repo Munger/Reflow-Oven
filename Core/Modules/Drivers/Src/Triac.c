@@ -20,6 +20,8 @@
 
 #include <string.h>
 
+#include "FreeRTOS.h"
+#include "event_groups.h"
 #include "main.h"
 #include "Triac.h"
 
@@ -32,6 +34,7 @@ typedef struct TriacDevice {
     const uint16_t      pin;           ///< GPIO pin for the gate drive (active-low)
     GPIO_TypeDef* const port;          ///< GPIO port for the gate drive
     osEventFlagsId_t    flags;         ///< Private event flag group for this instance
+    StaticEventGroup_t  flagsBuffer;   ///< Storage backing flags (no-heap allocation)
     TriacDriveParams    currentParams; ///< Currently applied drive parameters
     uint8_t             burstCounter;  ///< Half-cycle counter within the burst window
 } TriacDevice, *TriacDevicePtr;
@@ -82,7 +85,7 @@ static void TriacTimerCallback( TIM_HandleTypeDef* htim );
 /// Sets FlagTriacStatusReady on each channel and signals FlagTriacReady in DeviceStatusFlagsHandle.
 void TriacInitModule( void ) {
     for ( int i = 0; i < TriacCount; i++ ) {
-        devices[ i ].flags = osEventFlagsNew( NULL );
+        devices[ i ].flags = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &devices[ i ].flagsBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
         // TRIAC gates are Active-Low; SET = Off (gate not conducting)
         HAL_GPIO_WritePin( devices[ i ].port, devices[ i ].pin, GPIO_PIN_SET );
         osEventFlagsSet( devices[ i ].flags, 1 << FlagTriacStatusReady );

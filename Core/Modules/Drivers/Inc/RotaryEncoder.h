@@ -29,7 +29,7 @@
 
 /// @brief Logical identifiers for rotary encoder instances managed by this driver.
 typedef enum {
-    RotaryEncoder1 = 0,  ///< AS5600 encoder on the oven fan shaft
+    OvenFanEncoder = 0,  ///< AS5600 encoder on the oven fan shaft
     RotaryEncoderCount
 } RotaryEncoderID;
 

@@ -26,6 +26,9 @@
 #include "ReflowProfile.h"
 #include "OvenController.h"
 #include "ACFan.h"
+#if FEATURE_BOARD_FAN
+#include "DCFan.h"
+#endif // FEATURE_BOARD_FAN
 
 // ============================================================================
 // Constants
@@ -44,6 +47,9 @@ typedef struct {
     Permille          fanSpeed;     ///< Last speed set on the fan; used as the ramp start for the next stage.
     Permille          fanFrom;      ///< Fan speed at the start of the current stage; ramp origin.
 #endif // FEATURE_OVEN_FAN
+#if FEATURE_BOARD_FAN
+    DCFanRef          boardFan;
+#endif // FEATURE_BOARD_FAN
     OvenControlPB     pb;
     ReflowProfilePtr  profile;      ///< Heap-allocated; NULL when idle.
     ReflowStagePtr    currentStage; ///< Pointer into profile's linked list.
@@ -71,7 +77,7 @@ static void ApplyStage( ReflowStagePtr stage ) {
 
     state.pb.targetTemp   = stage->targetTemp;
     state.pb.rampRate     = ( stage->rampRate > 0 ) ? stage->rampRate : 0;
-    state.pb.tolerance    = kStageTolerance;
+    state.pb.tolerance    = ( stage->targetTemp > 0 ) ? kStageTolerance : 0;
     state.pb.heaterTop    = stage->heaterTop;
     state.pb.heaterRear   = stage->heaterRear;
     state.pb.heaterBottom = stage->heaterBottom;
@@ -111,9 +117,12 @@ void ReflowInitModule( void ) {
 #if FEATURE_OVEN_FAN
     state.fan = ACFanOpen( OvenFan, TriacOvenFan );
 #if FEATURE_ROTARY_ENCODER
-    ACFanAttachEncoder( state.fan, RotaryEncoder1 );
+    ACFanAttachEncoder( state.fan, OvenFanEncoder );
 #endif // FEATURE_ROTARY_ENCODER
 #endif // FEATURE_OVEN_FAN
+#if FEATURE_BOARD_FAN
+    state.boardFan = DCFanOpen( BoardCoolingFan, NULL );
+#endif // FEATURE_BOARD_FAN
 
 }
 
@@ -169,13 +178,18 @@ void ReflowProcess( void ) {
         return;
     }
 
-    if ( !( flags & BIT( FlagReflowHoldActive ) ) && ( ocStatus & BIT( FlagOvenControllerStatusAtTemp ) ) ) {
+    if ( !( flags & BIT( FlagReflowHoldActive ) ) &&
+         ( stage->targetTemp == 0 || ( ocStatus & BIT( FlagOvenControllerStatusAtTemp ) ) ) ) {
         osEventFlagsSet( ReflowFlagsHandle, BIT( FlagReflowHoldActive ) );
         flags |= BIT( FlagReflowHoldActive );
 
 #if FEATURE_OVEN_FAN && FEATURE_AC_FAN_CALIBRATION
         if ( stage->function == ReflowFnCalFan && state.fan )
             ACFanCalibrate( state.fan );
+#endif
+#if FEATURE_BOARD_FAN
+        if ( stage->function == ReflowFnCalBoardFan && state.boardFan )
+            DCFanCalibrate( state.boardFan );
 #endif
 
         state.holdStartMs = osKernelGetTickCount();
@@ -193,7 +207,7 @@ void ReflowProcess( void ) {
                         (int32_t)frac / 1000 );
             }
         }
-        ACFanSetSpeed( state.fan, speed );
+        ACFanSetSpeed( state.fan, speed / 10 );
         state.fanSpeed = speed;
     }
 #endif // FEATURE_OVEN_FAN

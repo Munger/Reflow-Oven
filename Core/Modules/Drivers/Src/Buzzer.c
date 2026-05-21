@@ -19,6 +19,7 @@
 #include <string.h>
 #include "FreeRTOS.h"
 #include "task.h"
+#include "event_groups.h"
 #include "Platform.h"
 #include "main.h"
 #include "tim.h"
@@ -80,6 +81,7 @@ static const Melody* patterns[] = {
 /// @brief Internal state for one buzzer instance.
 typedef struct BuzzerInstance {
     osEventFlagsId_t       statusHandle;
+    StaticEventGroup_t     statusBuffer;    ///< Storage backing statusHandle (no-heap allocation)
     volatile const Melody* currentMelody;    ///< Melody currently being played (written by task, read by ISR)
     volatile uint8_t       currentIndex;     ///< Index of the note currently playing
     volatile uint32_t      remainingToggles; ///< Timer ticks remaining for the current note
@@ -99,7 +101,7 @@ static void TimerHandler( TIM_HandleTypeDef *htim );
 void BuzzerInitModule( void ) {
     memset( instances, 0, sizeof( instances ) );
     for ( uint8_t i = 0; i < BuzzerCount; i++ ) {
-        instances[ i ].statusHandle = osEventFlagsNew( NULL );
+        instances[ i ].statusHandle = osEventFlagsNew( &(osEventFlagsAttr_t){ .cb_mem = &instances[ i ].statusBuffer, .cb_size = sizeof( StaticEventGroup_t ) } );
     }
     HAL_TIM_RegisterCallback( &htim7, HAL_TIM_PERIOD_ELAPSED_CB_ID, TimerHandler );
     osEventFlagsSet( DeviceStatusFlagsHandle, BIT( FlagBuzzerReady ) );

@@ -2,9 +2,9 @@
 ///
 /// @brief USB REST API task — public interface for the API task loop.
 ///
-/// The API task processes incoming USB CDC requests, dispatches them to route
-/// handlers, serialises responses, and drives the USB transmission pipeline.
-/// USBTxDoneHandler() is called directly from the USB ISR.
+/// The API task blocks on task notifications and iterates the DriverRegistry
+/// for TaskOwnerAPI processes — currently USBCDCProcess which handles both
+/// request dispatch and the CDC transmit pipeline.
 ///
 /// @copyright Copyright (c) 2026 Tim Hosking
 /// @see https://github.com/munger
@@ -18,26 +18,12 @@
 /// @brief FreeRTOS thread handle for the API task.
 extern osThreadId_t APITaskHandle;
 
-/// @brief Initialise the API core and buffer stream subsystems.
-///
-/// Waits for FlagSystemInitialised in SystemStatusFlagsHandle before proceeding.
+/// @brief Wait for FlagSystemInitialised before the task loop starts.
 /// Called once by app_freertos.c at startup.
 void APITaskInit( void );
 
-/// @brief Main execution body of the API task loop.
-///
-/// Blocks on xTaskNotifyWait(), processes pending requests via the route table,
-/// queues serialised responses, and drains the USB transmit queue.
-/// Called repeatedly by app_freertos.c in the task's infinite loop.
+/// @brief Block on notification, then run every TaskOwnerAPI process registered
+///        in the DriverRegistry. Called repeatedly by app_freertos.c.
 void APITaskLoop( void );
-
-/// @brief USB transmission complete callback — advances the transmit pipeline.
-///
-/// Called directly from the USB CDC ISR (usbd_cdc_if.c). Releases the completed
-/// buffer, starts the next link in the chain if present, or wakes the API task
-/// via task notification to re-check the output queue.
-///
-/// @warning ISR context. Uses FromISR notification variants only.
-void USBTxDoneHandler( void );
 
 #endif // API_TASK_H
